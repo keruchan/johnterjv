@@ -1,0 +1,893 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CERTREEFY | CENRO Sta. Cruz, Laguna — Tree Cutting Permit &amp; Environmental Management System</title>
+  <meta name="description" content="CERTREEFY is the official digital platform of CENRO Sta. Cruz, Laguna for tree cutting permit applications, illegal logging reports, seedling requests, and area verification.">
+  <meta name="keywords" content="CERTREEFY, CENRO Sta. Cruz Laguna, tree cutting permit, DENR, illegal logging report, seedling request, environmental management">
+  <meta name="author" content="CENRO Sta. Cruz, Laguna - DENR">
+  <meta property="og:title" content="CERTREEFY | Tree Cutting Permit & Environmental Management System">
+  <meta property="og:description" content="Apply for tree cutting permits, report illegal logging, and request seedlings online through CENRO Sta. Cruz, Laguna.">
+  <meta property="og:type" content="website">
+  <meta name="robots" content="index, follow">
+
+  <!-- Google Fonts: Poppins -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+
+  <!-- Bootstrap 5 CSS -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Bootstrap Icons -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+  <!-- AOS (Animate on Scroll) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css">
+
+  <style>
+    :root{
+      --forest-deep:#2E7D32;
+      --forest-fresh:#4CAF50;
+      --leaf-light:#A5D6A7;
+      --mist:#F5F5F5;
+      --charcoal:#263238;
+      --forest-deep-rgb:46,125,50;
+    }
+
+    *{scroll-behavior:smooth;}
+
+    body{
+      font-family:'Poppins',sans-serif;
+      color:var(--charcoal);
+      background-color:#ffffff;
+      font-weight:400;
+    }
+
+    h1,h2,h3,h4,h5,.brand-font{
+      font-family:'Poppins',sans-serif;
+      font-weight:700;
+      color:var(--charcoal);
+    }
+
+    .eyebrow{
+      text-transform:uppercase;
+      letter-spacing:.14em;
+      font-size:.78rem;
+      font-weight:600;
+      color:var(--forest-deep);
+    }
+
+    a{text-decoration:none;}
+
+    /* Focus visibility for accessibility (WCAG AA) */
+    a:focus-visible, button:focus-visible, .btn:focus-visible, .nav-link:focus-visible{
+      outline:3px solid var(--forest-fresh);
+      outline-offset:2px;
+    }
+
+    /* ===== NAVBAR ===== */
+    .navbar-certreefy{
+      background-color:#ffffff;
+      box-shadow:0 2px 14px rgba(38,50,56,.08);
+      padding-top:.65rem;
+      padding-bottom:.65rem;
+    }
+    .navbar-certreefy .navbar-brand{
+      font-weight:800;
+      font-size:1.35rem;
+      color:var(--forest-deep);
+      display:flex;
+      align-items:center;
+      gap:.5rem;
+    }
+    .navbar-certreefy .navbar-brand .logo-badge{
+      width:40px;height:40px;
+      background:linear-gradient(155deg,var(--forest-deep),var(--forest-fresh));
+      border-radius:12px;
+      display:flex;align-items:center;justify-content:center;
+      color:#fff;font-size:1.2rem;
+      flex-shrink:0;
+    }
+    .navbar-certreefy .nav-link{
+      font-weight:500;
+      color:var(--charcoal);
+      margin:0 .35rem;
+      position:relative;
+    }
+    .navbar-certreefy .nav-link:hover,
+    .navbar-certreefy .nav-link:focus{color:var(--forest-deep);}
+    .navbar-certreefy .nav-link.active{color:var(--forest-deep); font-weight:600;}
+    .btn-login{
+      background-color:var(--forest-deep);
+      color:#fff;
+      border-radius:8px;
+      font-weight:600;
+      padding:.5rem 1.3rem;
+      border:2px solid var(--forest-deep);
+    }
+    .btn-login:hover{background-color:var(--forest-fresh);border-color:var(--forest-fresh);color:#fff;}
+    .btn-register{
+      background-color:#fff;
+      color:var(--forest-deep);
+      border-radius:8px;
+      font-weight:600;
+      padding:.5rem 1.15rem;
+      border:2px solid var(--forest-deep);
+    }
+    .btn-register:hover{background-color:rgba(165,214,167,.24);border-color:var(--forest-fresh);color:var(--forest-deep);}
+
+    /* ===== HERO ===== */
+    .hero-section{
+      background:linear-gradient(180deg,#F5FBF5 0%, var(--mist) 100%);
+      padding-top:5.5rem;
+      padding-bottom:3rem;
+      overflow:hidden;
+      position:relative;
+    }
+    .hero-section h1{
+      font-size:clamp(2.1rem, 4vw, 3.1rem);
+      line-height:1.15;
+    }
+    .hero-section .lead-text{
+      color:#455A64;
+      font-size:1.12rem;
+      max-width:560px;
+    }
+    .btn-forest-primary{
+      background-color:var(--forest-deep);
+      border:2px solid var(--forest-deep);
+      color:#fff;
+      font-weight:600;
+      padding:.75rem 1.6rem;
+      border-radius:9px;
+      transition:.2s ease-in-out;
+    }
+    .btn-forest-primary:hover{background-color:#256428;border-color:#256428;color:#fff;}
+    .btn-forest-outline{
+      background-color:transparent;
+      border:2px solid var(--forest-deep);
+      color:var(--forest-deep);
+      font-weight:600;
+      padding:.75rem 1.6rem;
+      border-radius:9px;
+      transition:.2s ease-in-out;
+    }
+    .btn-forest-outline:hover{background-color:var(--forest-deep);color:#fff;}
+
+    /* Signature hero illustration: layered forest silhouette (pure SVG/CSS) */
+    .forest-illustration{width:100%; max-width:520px; margin:0 auto;}
+    .badge-canopy{
+      position:absolute;
+      background:#fff;
+      border-radius:14px;
+      box-shadow:0 10px 30px rgba(38,50,56,.14);
+      padding:.85rem 1.1rem;
+      font-size:.85rem;
+      font-weight:600;
+      display:flex;align-items:center;gap:.6rem;
+    }
+
+    /* ===== SECTION GENERIC ===== */
+    .section-pad{padding:5rem 0;}
+    .bg-mist{background-color:var(--mist);}
+    .section-title{font-size:clamp(1.6rem,3vw,2.2rem);}
+    .section-sub{color:#546E7A; max-width:680px;}
+
+    /* ===== ABOUT ===== */
+    .about-stat-pill{
+      background:#fff;
+      border:1px solid rgba(46,125,50,.15);
+      border-radius:12px;
+      padding:1rem 1.2rem;
+    }
+
+    /* ===== SERVICE CARDS ===== */
+    .service-card{
+      border:1px solid rgba(38,50,56,.08);
+      border-radius:16px;
+      padding:2rem 1.6rem;
+      height:100%;
+      background:#fff;
+      transition:transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+    }
+    .service-card:hover{
+      transform:translateY(-6px);
+      box-shadow:0 16px 34px rgba(38,50,56,.1);
+      border-color:var(--forest-fresh);
+    }
+    .service-icon{
+      width:58px;height:58px;
+      border-radius:14px;
+      background:rgba(76,175,80,.12);
+      color:var(--forest-deep);
+      display:flex;align-items:center;justify-content:center;
+      font-size:1.5rem;
+      margin-bottom:1.1rem;
+    }
+
+    /* ===== PROCESS ===== */
+    .process-track{position:relative;}
+    .process-step{
+      background:#fff;
+      border-radius:16px;
+      border:1px solid rgba(38,50,56,.08);
+      padding:1.8rem 1.3rem;
+      height:100%;
+      text-align:center;
+      position:relative;
+    }
+    .process-number{
+      width:46px;height:46px;
+      border-radius:50%;
+      background:var(--forest-deep);
+      color:#fff;
+      display:flex;align-items:center;justify-content:center;
+      font-weight:700;
+      margin:0 auto 1rem auto;
+      font-size:1.05rem;
+    }
+    .process-connector{
+      display:none;
+    }
+    @media (min-width:992px){
+      .process-connector{
+        display:block;
+        position:absolute;
+        top:23px;
+        right:-1.6rem;
+        width:3.2rem;
+        height:2px;
+        background:repeating-linear-gradient(90deg,var(--leaf-light) 0 6px, transparent 6px 12px);
+      }
+    }
+
+    /* ===== WHY CHOOSE ===== */
+    .why-card{
+      background:#fff;
+      border-radius:14px;
+      padding:1.7rem 1.3rem;
+      height:100%;
+      border-left:4px solid var(--forest-fresh);
+      box-shadow:0 6px 20px rgba(38,50,56,.05);
+    }
+
+    /* ===== STATS ===== */
+    .stats-band{
+      background:linear-gradient(120deg,var(--forest-deep),#1B5E20);
+      color:#fff;
+    }
+    .stat-figure{
+      font-size:clamp(1.8rem,3.4vw,2.6rem);
+      font-weight:800;
+      line-height:1;
+    }
+    .stat-label{
+      font-size:.9rem;
+      color:rgba(255,255,255,.85);
+      letter-spacing:.02em;
+    }
+
+    /* ===== FAQ ===== */
+    .accordion-button{
+      font-weight:600;
+      color:var(--charcoal);
+      background-color:#fff;
+    }
+    .accordion-button:not(.collapsed){
+      color:var(--forest-deep);
+      background-color:rgba(165,214,167,.22);
+      box-shadow:none;
+    }
+    .accordion-button:focus{box-shadow:0 0 0 .2rem rgba(76,175,80,.25);}
+    .accordion-item{
+      border:1px solid rgba(38,50,56,.08);
+      border-radius:12px !important;
+      overflow:hidden;
+      margin-bottom:.9rem;
+    }
+
+    /* ===== CONTACT ===== */
+    .contact-card{
+      background:#fff;
+      border-radius:16px;
+      padding:2rem;
+      border:1px solid rgba(38,50,56,.08);
+      height:100%;
+    }
+    .contact-item{display:flex; gap:.9rem; margin-bottom:1.3rem;}
+    .contact-item i{
+      width:42px;height:42px;flex-shrink:0;
+      border-radius:10px;
+      background:rgba(46,125,50,.1);
+      color:var(--forest-deep);
+      display:flex;align-items:center;justify-content:center;
+      font-size:1.1rem;
+    }
+    .map-placeholder{
+      border-radius:16px;
+      overflow:hidden;
+      min-height:340px;
+      border:1px solid rgba(38,50,56,.08);
+    }
+
+    /* ===== FOOTER ===== */
+    footer.site-footer{
+      background-color:var(--charcoal);
+      color:rgba(255,255,255,.82);
+    }
+    footer.site-footer a{color:rgba(255,255,255,.72);}
+    footer.site-footer a:hover{color:var(--leaf-light);}
+    footer.site-footer h6{
+      color:#fff;
+      font-weight:700;
+      letter-spacing:.03em;
+    }
+    .footer-divider{border-color:rgba(255,255,255,.12);}
+    .social-icon{
+      width:38px;height:38px;
+      border-radius:50%;
+      background:rgba(255,255,255,.08);
+      display:flex;align-items:center;justify-content:center;
+      color:#fff;
+    }
+    .social-icon:hover{background:var(--forest-fresh);}
+
+    @media (prefers-reduced-motion: reduce){
+      *{animation:none !important; transition:none !important;}
+    }
+  </style>
+</head>
+<body>
+
+  <!-- =========================================================
+       1. NAVBAR (Sticky)
+  ========================================================== -->
+  <header>
+    <nav class="navbar navbar-expand-lg navbar-certreefy sticky-top" aria-label="Primary navigation">
+      <div class="container">
+        <a class="navbar-brand" href="#home">
+          <span class="logo-badge"><i class="bi bi-tree-fill"></i></span>
+          CERTREEFY
+        </a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
+                aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="mainNav">
+          <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-lg-center">
+            <li class="nav-item"><a class="nav-link active" href="#home">Home</a></li>
+            <li class="nav-item"><a class="nav-link" href="#about">About</a></li>
+            <li class="nav-item"><a class="nav-link" href="#services">Services</a></li>
+            <li class="nav-item"><a class="nav-link" href="#process">Process</a></li>
+            <li class="nav-item"><a class="nav-link" href="#faq">FAQ</a></li>
+            <li class="nav-item"><a class="nav-link" href="#contact">Contact</a></li>
+            <li class="nav-item ms-lg-3 mt-2 mt-lg-0">
+              <a href="auth/login.php" class="btn btn-login"><i class="bi bi-box-arrow-in-right me-1"></i>Login</a>
+            </li>
+            <li class="nav-item ms-lg-2 mt-2 mt-lg-0">
+              <a href="auth/register.php" class="btn btn-register"><i class="bi bi-person-plus me-1"></i>Register</a>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </nav>
+  </header>
+
+  <main>
+    <!-- =========================================================
+         2. HERO SECTION
+    ========================================================== -->
+    <section id="home" class="hero-section">
+      <div class="container">
+        <div class="row align-items-center gy-5">
+          <div class="col-lg-6" data-aos="fade-up">
+            <span class="eyebrow"><i class="bi bi-patch-check-fill me-1"></i>Official CENRO Sta. Cruz, Laguna Platform</span>
+            <h1 class="mt-3 mb-3">Growing a Greener Laguna, One Digital Permit at a Time.</h1>
+            <p class="lead-text mb-4">
+              CERTREEFY lets residents, businesses, and communities of Sta. Cruz, Laguna apply for tree
+              cutting permits, report illegal logging, request seedlings, and track environmental
+              applications online — fast, transparent, and fully accountable to DENR standards.
+            </p>
+            <div class="d-flex flex-wrap gap-3">
+              <a href="auth/login.php" class="btn btn-forest-primary"><i class="bi bi-file-earmark-text me-2"></i>Request Permit</a>
+              <a href="auth/login.php" class="btn btn-forest-outline"><i class="bi bi-shield-exclamation me-2"></i>Report Illegal Logging</a>
+            </div>
+          </div>
+          <div class="col-lg-6 position-relative" data-aos="fade-left" data-aos-delay="100">
+            <!-- Signature illustration: layered forest silhouette built in SVG -->
+            <svg class="forest-illustration" viewBox="0 0 520 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Illustration of layered forest hills with pine trees">
+              <rect x="0" y="0" width="520" height="420" fill="none"/>
+              <!-- back hill -->
+              <path d="M0 300 Q130 230 260 290 T520 270 V420 H0 Z" fill="#A5D6A7" opacity="0.65"/>
+              <!-- mid hill -->
+              <path d="M0 340 Q140 280 260 330 T520 310 V420 H0 Z" fill="#4CAF50" opacity="0.75"/>
+              <!-- front hill -->
+              <path d="M0 380 Q150 330 260 370 T520 355 V420 H0 Z" fill="#2E7D32"/>
+              <!-- pine cluster -->
+              <g fill="#1B5E20">
+                <polygon points="90,150 110,200 70,200"/>
+                <polygon points="90,175 115,225 65,225"/>
+                <rect x="86" y="222" width="8" height="18"/>
+                <polygon points="180,110 205,170 155,170"/>
+                <polygon points="180,140 210,200 150,200"/>
+                <rect x="176" y="197" width="8" height="20"/>
+                <polygon points="330,130 355,185 305,185"/>
+                <polygon points="330,160 360,215 300,215"/>
+                <rect x="326" y="212" width="8" height="20"/>
+              </g>
+              <g fill="#4CAF50">
+                <polygon points="240,170 260,210 220,210"/>
+                <polygon points="240,192 264,230 216,230"/>
+                <rect x="236" y="227" width="8" height="16"/>
+                <polygon points="420,150 442,195 398,195"/>
+                <polygon points="420,175 446,215 394,215"/>
+                <rect x="416" y="212" width="8" height="18"/>
+              </g>
+              <circle cx="440" cy="70" r="34" fill="#F5F5F5"/>
+            </svg>
+            <div class="badge-canopy" style="top:10%; left:0;">
+              <i class="bi bi-clock-history text-success"></i> Avg. 5-day review
+            </div>
+            <div class="badge-canopy" style="bottom:6%; right:2%;">
+              <i class="bi bi-shield-check text-success"></i> DENR-Compliant
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         3. ABOUT SECTION
+    ========================================================== -->
+    <section id="about" class="section-pad">
+      <div class="container">
+        <div class="row align-items-center gy-5">
+          <div class="col-lg-6" data-aos="fade-right">
+            <span class="eyebrow">About CERTREEFY</span>
+            <h2 class="section-title mt-2 mb-3">A digital bridge between the community and CENRO Sta. Cruz</h2>
+            <p class="section-sub mb-4">
+              CERTREEFY (CENRO Electronic Registry for Tree Regulation, Environmental Enforcement,
+              and Facilitation System) is the
+              official online system of the Community Environment and Natural Resources Office (CENRO) in
+              Sta. Cruz, Laguna, under the Department of Environment and Natural Resources (DENR). It
+              streamlines tree cutting permit applications, illegal logging reports, seedling requests,
+              and area verification — replacing paper-based queues with a transparent digital process that
+              residents and field officers can both track in real time.
+            </p>
+            <div class="row row-cols-2 g-3">
+              <div class="col">
+                <div class="about-stat-pill">
+                  <i class="bi bi-diagram-3 text-success fs-5"></i>
+                  <div class="fw-semibold mt-1">Streamlined Workflow</div>
+                  <small class="text-muted">From request to release</small>
+                </div>
+              </div>
+              <div class="col">
+                <div class="about-stat-pill">
+                  <i class="bi bi-eye text-success fs-5"></i>
+                  <div class="fw-semibold mt-1">Public Transparency</div>
+                  <small class="text-muted">Track application status</small>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-6" data-aos="fade-left">
+            <div class="row g-3">
+              <div class="col-6">
+                <div class="p-4 rounded-4 h-100" style="background:var(--leaf-light);">
+                  <i class="bi bi-tree fs-2 text-success"></i>
+                  <p class="fw-semibold mt-2 mb-0">Sustainable forestry practices across Sta. Cruz</p>
+                </div>
+              </div>
+              <div class="col-6 mt-5">
+                <div class="p-4 rounded-4 h-100 bg-mist">
+                  <i class="bi bi-people fs-2" style="color:var(--forest-deep);"></i>
+                  <p class="fw-semibold mt-2 mb-0">Community-driven environmental protection</p>
+                </div>
+              </div>
+              <div class="col-6">
+                <div class="p-4 rounded-4 h-100 bg-mist">
+                  <i class="bi bi-building fs-2" style="color:var(--forest-deep);"></i>
+                  <p class="fw-semibold mt-2 mb-0">Aligned with DENR regulatory standards</p>
+                </div>
+              </div>
+              <div class="col-6 mt-n5 mt-md-0">
+                <div class="p-4 rounded-4 h-100" style="background:var(--leaf-light);">
+                  <i class="bi bi-graph-up-arrow fs-2 text-success"></i>
+                  <p class="fw-semibold mt-2 mb-0">Data-backed decisions from field reports</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         4. SERVICES SECTION
+    ========================================================== -->
+    <section id="services" class="section-pad bg-mist">
+      <div class="container">
+        <div class="text-center mb-5" data-aos="fade-up">
+          <span class="eyebrow">What You Can Do</span>
+          <h2 class="section-title mt-2">Our Core Services</h2>
+          <p class="section-sub mx-auto mt-2">
+            Four essential environmental services now available online for residents, tree farm
+            operators, and community organizations in Sta. Cruz, Laguna.
+          </p>
+        </div>
+        <div class="row g-4">
+          <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="0">
+            <div class="service-card">
+              <div class="service-icon"><i class="bi bi-file-earmark-text"></i></div>
+              <h3 class="h5">Tree Cutting Permit</h3>
+              <p class="text-muted mb-3">Apply online to legally cut, prune, or remove trees on private or titled land, complete with document upload and status tracking.</p>
+              <a href="auth/login.php" class="fw-semibold" style="color:var(--forest-deep);">Apply now <i class="bi bi-arrow-right"></i></a>
+            </div>
+          </div>
+          <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="100">
+            <div class="service-card">
+              <div class="service-icon"><i class="bi bi-shield-exclamation"></i></div>
+              <h3 class="h5">Illegal Logging Report</h3>
+              <p class="text-muted mb-3">Submit geotagged photos and location details of suspected illegal cutting activities for rapid CENRO enforcement action.</p>
+              <a href="auth/login.php" class="fw-semibold" style="color:var(--forest-deep);">File a report <i class="bi bi-arrow-right"></i></a>
+            </div>
+          </div>
+          <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="200">
+            <div class="service-card">
+              <div class="service-icon"><i class="bi bi-flower1"></i></div>
+              <h3 class="h5">Seedling Request</h3>
+              <p class="text-muted mb-3">Request free native and fruit-bearing seedlings from CENRO nurseries for reforestation, greening, or backyard planting.</p>
+              <a href="auth/login.php" class="fw-semibold" style="color:var(--forest-deep);">Request seedlings <i class="bi bi-arrow-right"></i></a>
+            </div>
+          </div>
+          <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="300">
+            <div class="service-card">
+              <div class="service-icon"><i class="bi bi-geo-alt"></i></div>
+              <h3 class="h5">Area Verification</h3>
+              <p class="text-muted mb-3">Schedule an official ground validation to confirm land classification, tree count, and site boundaries before permit issuance.</p>
+              <a href="auth/login.php" class="fw-semibold" style="color:var(--forest-deep);">Schedule visit <i class="bi bi-arrow-right"></i></a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         5. PROCESS SECTION (Request -> Review -> Inspection -> Decision -> Permit)
+    ========================================================== -->
+    <section id="process" class="section-pad">
+      <div class="container">
+        <div class="text-center mb-5" data-aos="fade-up">
+          <span class="eyebrow">How It Works</span>
+          <h2 class="section-title mt-2">From Application to Permit in 5 Steps</h2>
+          <p class="section-sub mx-auto mt-2">Every request follows the same regulated path CENRO uses to review and approve environmental applications.</p>
+        </div>
+        <div class="row g-4 process-track">
+          <div class="col-6 col-lg" data-aos="fade-up" data-aos-delay="0">
+            <div class="process-step">
+              <div class="process-connector"></div>
+              <div class="process-number">1</div>
+              <h3 class="h6 mb-1">Request</h3>
+              <p class="text-muted small mb-0">Submit your application and required documents online.</p>
+            </div>
+          </div>
+          <div class="col-6 col-lg" data-aos="fade-up" data-aos-delay="100">
+            <div class="process-step">
+              <div class="process-connector"></div>
+              <div class="process-number">2</div>
+              <h3 class="h6 mb-1">Review</h3>
+              <p class="text-muted small mb-0">CENRO staff evaluate completeness and eligibility.</p>
+            </div>
+          </div>
+          <div class="col-6 col-lg" data-aos="fade-up" data-aos-delay="200">
+            <div class="process-step">
+              <div class="process-connector"></div>
+              <div class="process-number">3</div>
+              <h3 class="h6 mb-1">Inspection</h3>
+              <p class="text-muted small mb-0">Field officers conduct on-site area verification.</p>
+            </div>
+          </div>
+          <div class="col-6 col-lg" data-aos="fade-up" data-aos-delay="300">
+            <div class="process-step">
+              <div class="process-connector"></div>
+              <div class="process-number">4</div>
+              <h3 class="h6 mb-1">Decision</h3>
+              <p class="text-muted small mb-0">Findings are assessed for approval or denial.</p>
+            </div>
+          </div>
+          <div class="col-6 col-lg" data-aos="fade-up" data-aos-delay="400">
+            <div class="process-step">
+              <div class="process-number">5</div>
+              <h3 class="h6 mb-1">Permit</h3>
+              <p class="text-muted small mb-0">Approved permits are released and downloadable online.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         6. WHY CHOOSE CERTREEFY
+    ========================================================== -->
+    <section class="section-pad bg-mist">
+      <div class="container">
+        <div class="text-center mb-5" data-aos="fade-up">
+          <span class="eyebrow">Why Choose CERTREEFY</span>
+          <h2 class="section-title mt-2">Built for Speed, Trust, and Accountability</h2>
+        </div>
+        <div class="row g-4">
+          <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="0">
+            <div class="why-card">
+              <i class="bi bi-lightning-charge fs-3" style="color:var(--forest-deep);"></i>
+              <h3 class="h6 mt-2">Fast Processing</h3>
+              <p class="text-muted small mb-0">Standardized timelines cut approval waiting time significantly.</p>
+            </div>
+          </div>
+          <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="100">
+            <div class="why-card">
+              <i class="bi bi-eye fs-3" style="color:var(--forest-deep);"></i>
+              <h3 class="h6 mt-2">Transparent Tracking</h3>
+              <p class="text-muted small mb-0">Real-time application status visible to every applicant.</p>
+            </div>
+          </div>
+          <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="200">
+            <div class="why-card">
+              <i class="bi bi-laptop fs-3" style="color:var(--forest-deep);"></i>
+              <h3 class="h6 mt-2">Fully Digital</h3>
+              <p class="text-muted small mb-0">Apply, upload, and pay online without office queues.</p>
+            </div>
+          </div>
+          <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="300">
+            <div class="why-card">
+              <i class="bi bi-shield-lock fs-3" style="color:var(--forest-deep);"></i>
+              <h3 class="h6 mt-2">Secure &amp; Verified</h3>
+              <p class="text-muted small mb-0">Role-based access protects records and approvals.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         7. STATS SECTION
+    ========================================================== -->
+    <section class="section-pad stats-band">
+      <div class="container">
+        <div class="row g-4 text-center">
+          <div class="col-6 col-lg-3" data-aos="zoom-in" data-aos-delay="0">
+            <div class="stat-figure">4,215</div>
+            <div class="stat-label">Permits Issued</div>
+          </div>
+          <div class="col-6 col-lg-3" data-aos="zoom-in" data-aos-delay="100">
+            <div class="stat-figure">1,038</div>
+            <div class="stat-label">Illegal Logging Reports Acted On</div>
+          </div>
+          <div class="col-6 col-lg-3" data-aos="zoom-in" data-aos-delay="200">
+            <div class="stat-figure">62,900</div>
+            <div class="stat-label">Seedlings Distributed</div>
+          </div>
+          <div class="col-6 col-lg-3" data-aos="zoom-in" data-aos-delay="300">
+            <div class="stat-figure">37</div>
+            <div class="stat-label">Protected Areas Monitored</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         8. FAQ SECTION
+    ========================================================== -->
+    <section id="faq" class="section-pad">
+      <div class="container">
+        <div class="text-center mb-5" data-aos="fade-up">
+          <span class="eyebrow">Common Questions</span>
+          <h2 class="section-title mt-2">Frequently Asked Questions</h2>
+        </div>
+        <div class="row justify-content-center">
+          <div class="col-lg-9">
+            <div class="accordion" id="faqAccordion">
+              <div class="accordion-item" data-aos="fade-up">
+                <h3 class="accordion-header" id="faqHead1">
+                  <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#faqOne" aria-expanded="true" aria-controls="faqOne">
+                    Who can apply for a tree cutting permit through CERTREEFY?
+                  </button>
+                </h3>
+                <div id="faqOne" class="accordion-collapse collapse show" aria-labelledby="faqHead1" data-bs-parent="#faqAccordion">
+                  <div class="accordion-body text-muted">
+                    Any landowner, business, homeowners' association, or authorized representative with
+                    trees located within the jurisdiction of Sta. Cruz, Laguna may apply, provided they
+                    submit proof of land ownership or tenure and a valid reason for the requested cutting.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item" data-aos="fade-up">
+                <h3 class="accordion-header" id="faqHead2">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faqTwo" aria-expanded="false" aria-controls="faqTwo">
+                    How long does the permit review process take?
+                  </button>
+                </h3>
+                <div id="faqTwo" class="accordion-collapse collapse" aria-labelledby="faqHead2" data-bs-parent="#faqAccordion">
+                  <div class="accordion-body text-muted">
+                    On average, straightforward applications are reviewed within 5 to 10 working days from
+                    submission, provided all documents are complete and the site inspection is scheduled
+                    without delay.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item" data-aos="fade-up">
+                <h3 class="accordion-header" id="faqHead3">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faqThree" aria-expanded="false" aria-controls="faqThree">
+                    What happens after I report illegal logging?
+                  </button>
+                </h3>
+                <div id="faqThree" class="accordion-collapse collapse" aria-labelledby="faqHead3" data-bs-parent="#faqAccordion">
+                  <div class="accordion-body text-muted">
+                    Your report is routed directly to the CENRO enforcement team along with any photos and
+                    location data you provide. A field team is dispatched to verify the site, and you may
+                    track the status of your report through your CERTREEFY account.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item" data-aos="fade-up">
+                <h3 class="accordion-header" id="faqHead4">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faqFour" aria-expanded="false" aria-controls="faqFour">
+                    Is there a fee for requesting seedlings?
+                  </button>
+                </h3>
+                <div id="faqFour" class="accordion-collapse collapse" aria-labelledby="faqHead4" data-bs-parent="#faqAccordion">
+                  <div class="accordion-body text-muted">
+                    Seedling requests for reforestation, greening projects, and personal backyard planting
+                    are provided free of charge, subject to seedling availability at the CENRO nursery and
+                    quantity limits per household or organization.
+                  </div>
+                </div>
+              </div>
+              <div class="accordion-item" data-aos="fade-up">
+                <h3 class="accordion-header" id="faqHead5">
+                  <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#faqFive" aria-expanded="false" aria-controls="faqFive">
+                    Can I track my application status online?
+                  </button>
+                </h3>
+                <div id="faqFive" class="accordion-collapse collapse" aria-labelledby="faqHead5" data-bs-parent="#faqAccordion">
+                  <div class="accordion-body text-muted">
+                    Yes. Once logged in, applicants can view real-time status updates for every stage of
+                    their request — from initial submission through review, inspection, decision, and
+                    permit release.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- =========================================================
+         9. CONTACT SECTION
+    ========================================================== -->
+    <section id="contact" class="section-pad bg-mist">
+      <div class="container">
+        <div class="text-center mb-5" data-aos="fade-up">
+          <span class="eyebrow">Get in Touch</span>
+          <h2 class="section-title mt-2">Visit or Contact CENRO Sta. Cruz, Laguna</h2>
+        </div>
+        <div class="row g-4">
+          <div class="col-lg-5" data-aos="fade-right">
+            <div class="contact-card">
+              <div class="contact-item">
+                <i class="bi bi-geo-alt-fill"></i>
+                <div>
+                  <div class="fw-semibold">Office Address</div>
+                  <div class="text-muted small">CENRO Sta. Cruz, Brgy. Bubukal, Sta. Cruz, Laguna, Philippines</div>
+                </div>
+              </div>
+              <div class="contact-item">
+                <i class="bi bi-telephone-fill"></i>
+                <div>
+                  <div class="fw-semibold">Phone Line</div>
+                  <div class="text-muted small">(049) 501-0000</div>
+                </div>
+              </div>
+              <div class="contact-item">
+                <i class="bi bi-envelope-fill"></i>
+                <div>
+                  <div class="fw-semibold">Email</div>
+                  <div class="text-muted small">cenro.stacruz@denr.gov.ph</div>
+                </div>
+              </div>
+              <div class="contact-item">
+                <i class="bi bi-clock-fill"></i>
+                <div>
+                  <div class="fw-semibold">Office Hours</div>
+                  <div class="text-muted small">Monday – Friday, 8:00 AM – 5:00 PM</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-7" data-aos="fade-left">
+            <!-- Map placeholder -->
+            <div class="map-placeholder h-100 d-flex align-items-center justify-content-center bg-white">
+              <iframe
+                title="CENRO Sta. Cruz Laguna Map Location"
+                src="https://www.google.com/maps?q=Sta.%20Cruz%2C%20Laguna%2C%20Philippines&output=embed"
+                width="100%" height="340" style="border:0;" loading="lazy"
+                referrerpolicy="no-referrer-when-downgrade">
+              </iframe>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- =========================================================
+       10. FOOTER
+  ========================================================== -->
+  <footer class="site-footer pt-5 pb-4">
+    <div class="container">
+      <div class="row g-4">
+        <div class="col-lg-4">
+          <a class="navbar-brand text-white d-flex align-items-center gap-2 mb-3" href="#home">
+            <span class="logo-badge"><i class="bi bi-tree-fill"></i></span>
+            CERTREEFY
+          </a>
+          <p class="small">
+            The official digital environmental permitting and reporting platform of CENRO Sta. Cruz,
+            Laguna, under the Department of Environment and Natural Resources (DENR).
+          </p>
+          <div class="d-flex gap-2 mt-3">
+            <a href="#" class="social-icon" aria-label="Facebook"><i class="bi bi-facebook"></i></a>
+            <a href="#" class="social-icon" aria-label="X (Twitter)"><i class="bi bi-twitter-x"></i></a>
+            <a href="#" class="social-icon" aria-label="YouTube"><i class="bi bi-youtube"></i></a>
+          </div>
+        </div>
+        <div class="col-6 col-lg-2">
+          <h6 class="mb-3">Quick Links</h6>
+          <ul class="list-unstyled small">
+            <li class="mb-2"><a href="#about">About</a></li>
+            <li class="mb-2"><a href="#services">Services</a></li>
+            <li class="mb-2"><a href="#process">Process</a></li>
+            <li class="mb-2"><a href="#faq">FAQ</a></li>
+            <li class="mb-2"><a href="auth/login.php">Login</a></li>
+            <li class="mb-2"><a href="auth/register.php">Register</a></li>
+          </ul>
+        </div>
+        <div class="col-6 col-lg-3">
+          <h6 class="mb-3">Services</h6>
+          <ul class="list-unstyled small">
+            <li class="mb-2"><a href="#services">Tree Cutting Permit</a></li>
+            <li class="mb-2"><a href="#services">Illegal Logging Report</a></li>
+            <li class="mb-2"><a href="#services">Seedling Request</a></li>
+            <li class="mb-2"><a href="#services">Area Verification</a></li>
+          </ul>
+        </div>
+        <div class="col-lg-3">
+          <h6 class="mb-3">Contact</h6>
+          <ul class="list-unstyled small">
+            <li class="mb-2"><i class="bi bi-geo-alt me-2"></i>Brgy. Bubukal, Sta. Cruz, Laguna</li>
+            <li class="mb-2"><i class="bi bi-telephone me-2"></i>(049) 501-0000</li>
+            <li class="mb-2"><i class="bi bi-envelope me-2"></i>cenro.stacruz@denr.gov.ph</li>
+          </ul>
+        </div>
+      </div>
+      <hr class="footer-divider my-4">
+      <div class="d-flex flex-column flex-md-row justify-content-between align-items-center small">
+        <div>&copy; 2026 CENRO Sta. Cruz, Laguna — Department of Environment and Natural Resources. All rights reserved.</div>
+        <div class="mt-2 mt-md-0">
+          <a href="#" class="me-3">Privacy Policy</a>
+          <a href="#">Terms of Use</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <!-- Bootstrap Bundle JS (includes Popper, needed for navbar/accordion) -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <!-- AOS JS -->
+  <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
+  <script>
+    AOS.init({ duration: 700, once: true, easing: 'ease-out-cubic' });
+  </script>
+</body>
+</html>
