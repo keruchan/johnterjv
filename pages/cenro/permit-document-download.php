@@ -1,0 +1,27 @@
+<?php
+/** Authorization-controlled RPS/authorized-Superadmin document download. */
+
+require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/permit_documents.php';
+
+require_roles($pdo, ['rps', 'superadmin']);
+
+$documentValue = trim((string) ($_GET['id'] ?? ''));
+if (!ctype_digit($documentValue) || (int) $documentValue < 1) {
+    http_response_code(404);
+    exit('The permit document was not found.');
+}
+
+try {
+    $document = permit_document_download_payload($pdo, (int) $documentValue, (int) $_SESSION['id']);
+    if ($document === null) {
+        http_response_code(404);
+        exit('The permit document was not found.');
+    }
+    send_permit_document_download($document);
+} catch (RuntimeException $e) {
+    error_log('[CERTREEFY PERMIT DOCUMENT DOWNLOAD ERROR] ' . $e->getMessage());
+    http_response_code(404);
+    exit('The permit document is unavailable.');
+}

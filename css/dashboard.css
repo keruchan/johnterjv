@@ -209,19 +209,27 @@ button:focus-visible,
     margin: 0.75rem 0;
 }
 
-.sidebar-footer a {
+.sidebar-footer a,
+.sidebar-footer button {
     display: flex;
     align-items: center;
     gap: 0.8rem;
+    width: 100%;
     min-height: 42px;
     padding: 0.55rem 0.85rem;
+    border: none;
     border-radius: var(--radius-md);
+    background: none;
     color: #e7b9ac;
+    font-family: inherit;
     font-size: 0.94rem;
     font-weight: 600;
+    text-align: left;
+    cursor: pointer;
 }
 
-.sidebar-footer a:hover {
+.sidebar-footer a:hover,
+.sidebar-footer button:hover {
     background: rgba(165, 66, 42, 0.22);
 }
 
@@ -735,6 +743,200 @@ button:focus-visible,
     --bs-btn-hover-border-color: var(--canopy-800);
     border-radius: var(--radius-md);
     font-weight: 600;
+}
+
+.user-filter-panel,
+.user-table-panel {
+    height: auto;
+}
+
+.user-filter-panel .form-label {
+    color: var(--ink-700);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.user-filter-panel .input-group-text {
+    color: var(--ink-600);
+    background: var(--sprout-100);
+    border-color: #d6d0bb;
+}
+
+.user-filter-panel .form-control,
+.user-filter-panel .form-select,
+.modal-content .form-control,
+.modal-content .form-select {
+    border-color: #d6d0bb;
+    border-radius: var(--radius-sm);
+}
+
+.user-filter-panel .form-control:focus,
+.user-filter-panel .form-select:focus,
+.modal-content .form-control:focus,
+.modal-content .form-select:focus {
+    border-color: var(--fern-600);
+    box-shadow: 0 0 0 0.2rem rgba(45, 106, 79, 0.14);
+}
+
+.user-table {
+    min-width: 940px;
+    color: var(--ink-700);
+    font-size: 0.84rem;
+}
+
+.user-table > :not(caption) > * > * {
+    padding: 0.85rem 0.75rem;
+    border-color: var(--line);
+}
+
+.user-table thead th {
+    color: var(--ink-600);
+    background: var(--sprout-100);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.user-table tbody tr:hover {
+    background: rgba(238, 244, 239, 0.55);
+}
+
+.user-identity {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    min-width: 255px;
+}
+
+.user-avatar {
+    width: 36px;
+    height: 36px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 36px;
+    border-radius: 50%;
+    color: #fff;
+    background: var(--fern-600);
+    font-weight: 700;
+}
+
+.user-name {
+    color: var(--ink-900);
+    font-weight: 700;
+}
+
+.user-meta {
+    max-width: 285px;
+    margin-top: 0.12rem;
+    overflow: hidden;
+    color: var(--ink-600);
+    font-size: 0.76rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.role-badge,
+.account-status {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0.25rem 0.58rem;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.role-badge {
+    color: var(--teal-600);
+    background: var(--teal-100);
+}
+
+.account-status::before {
+    width: 7px;
+    height: 7px;
+    margin-right: 0.4rem;
+    border-radius: 50%;
+    background: currentColor;
+    content: "";
+}
+
+.status-active {
+    color: var(--fern-600);
+    background: var(--sprout-100);
+}
+
+.status-pending {
+    color: var(--amber-600);
+    background: var(--amber-100);
+}
+
+.status-suspended {
+    color: #765313;
+    background: #f5e8b8;
+}
+
+.status-disabled {
+    color: var(--rust-600);
+    background: var(--rust-100);
+}
+
+.user-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-width: 118px;
+}
+
+.icon-action {
+    width: 34px;
+    height: 34px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border-radius: var(--radius-sm);
+}
+
+.modal-content {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    box-shadow: 0 24px 70px rgba(18, 36, 29, 0.22);
+}
+
+.modal-header,
+.modal-footer {
+    border-color: var(--line);
+}
+
+.modal-content .form-label,
+.user-detail-list dt {
+    color: var(--ink-600);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.user-detail-list dt,
+.user-detail-list dd {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.user-detail-list dd {
+    margin-bottom: 0;
+    overflow-wrap: anywhere;
+}
+
+.pagination {
+    --bs-pagination-color: var(--fern-600);
+    --bs-pagination-hover-color: var(--canopy-900);
+    --bs-pagination-focus-color: var(--canopy-900);
+    --bs-pagination-active-bg: var(--fern-600);
+    --bs-pagination-active-border-color: var(--fern-600);
 }
 
 @keyframes riseIn {

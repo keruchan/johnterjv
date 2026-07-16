@@ -1,0 +1,323 @@
+# CERTREEFY Project Context
+
+Last verified: 2026-07-17
+Verified against: `index.php`, `pages/index.html`, `config/*.php`, `includes/*.php`, `config/schema.sql`, `pages/auth/*.php`, `pages/community/*.php`, `pages/cenro/*.php`, `pages/ems/*.php`, `pages/*/dashboard.php`, `scripts/permit_validity_maintenance.php`, `css/dashboard.css`, `tests/permit_*`, directory inventory, private permit/inspection storage, live `certreefy_db` metadata, PHP 8.2.12 CLI, MariaDB 10.4.32, local HTTP registration/profile/authentication/RBAC/user-management/Community-permit checks, and rollback-safe permit creation/draft/submission/scan/original-document/inspection/decision/donation-requirement/EMS-receipt/final-verification/release/validity/expiration/cutting-completion/status/concurrency/integrity checks
+Status: Current architecture plus registration, profile, ownership, authentication, four-role page access, Superadmin user-management flows, database-backed exceptional permissions, notifications, general audit storage, the permit backend foundation, the Community Tree Cutting Permit draft/submission/list/detail workflow, protected online scan upload/review/download, append-only original-hardcopy/wet-ink verification, append-only site-inspection/tree-verification, transactional RPS review/approval/decline/return, immutable approval-time seedling donation requirements, transactional EMS receipt/physical verification, final RPS donation confirmation, transactional signed-permit preparation/release with a stored 50-90 day validity term, automatic validity expiration, and cutting-completion recording are verified. The full Phase 2 permit lifecycle (submission through completion or expiration) is implemented and service-and-database tested. Signed-permit scan upload with protected RPS/owner download is implemented (service-, database-, and HTTP-tested). Per project-owner decision the official permit is a physical wet-ink document claimed in person at the CENRO office (not generated or delivered digitally); the release notification and Community permit page communicate pickup status. The validity-start rule remains an unverified business decision. Visual browser rendering of the new release/validity/completion sections was not retested. Items labeled Unverified come from the project brief but have no supporting implementation.
+
+## Confidence Labels
+
+- **Verified**: supported by current source, schema, or local database metadata.
+- **UI-only**: visible copy or design exists, but no route, query, table, or backend workflow supports it.
+- **Unverified**: supplied as intended domain behavior but not confirmed by repository evidence or a project-owner decision.
+
+## Verified Project Shape
+
+| Area | Current implementation |
+| --- | --- |
+| Identity | Landing/auth copy identifies CERTREEFY as a CENRO Sta. Cruz, Laguna system under DENR |
+| Root | `index.php` redirects to static `pages/index.html` |
+| Runtime | Procedural PHP; local CLI is PHP 8.2.12 |
+| Shared bootstrap | `config/config.php` starts the session, configures cookies/error display, creates `$pdo`, and sets `Asia/Manila` |
+| Shared helpers | `includes/auth.php` owns authentication/session guards plus login throttling and failed-login attempt recording; `includes/permissions.php` owns database-backed action permissions; `includes/audit.php` and `includes/notifications.php` own reusable event writes; `includes/permit.php` and `includes/permit_workflow.php` own permit creation, ownership-aware access, transaction IDs, statuses, gates, and transitions; `includes/permit_documents.php` owns scan validation/private storage/versioning, online review, original verification, and protected download resolution; `includes/permit_inspections.php` owns inspection authorization, schedules/history, tree verification, protected photos, findings, audit, and notifications; `includes/permit_decisions.php` owns review queues, decision readiness, and append-only review/decision transactions; `includes/permit_donations.php` owns the configurable policy catalog, approval-only requirement creation, role-scoped reads, immutable progress snapshots, and filtered EMS discovery; `includes/permit_donation_receipts.php` owns EMS-only receipt validation, append-only corrections, itemized quantities, physical finalization, cumulative totals, flags, transitions, audit, and notifications; `includes/permit_release.php` owns the post-approval lifecycle: final RPS donation confirmation, transactional signed-permit preparation/release, the 50-90 day validity calculation and stored start basis, the idempotent expiration/expiry-reminder sweeps, and cutting-completion recording, each reusing the shared status/audit/notification writers; `includes/permit_donation_view.php` owns the shared Community/RPS/EMS requirement card; `includes/navigation.php` owns role/permission-aware protected-page navigation; `includes/user.php` owns profile input, validation, and identity-conflict checks; `includes/view.php` owns HTML escaping |
+| Database | PDO `mysql:` DSN targeting `certreefy_db`; local server is MariaDB 10.4.32 |
+| Authentication | `pages/auth/login.php`, `pages/auth/register.php`, `pages/auth/logout.php` |
+| Protected entry pages | Role dashboards, `pages/community/profile.php`, Community permit list/form/detail/upload/download pages, the RPS permit registry/detail/document-review/inspection-action/private-photo/decision-action pages, the EMS permit-donation registry/receipt-action pages, and `pages/cenro/user-management.php` |
+| Frontend | Bootstrap 5.3.3 CDN, Bootstrap Icons, Google Fonts; landing page also uses AOS |
+| Local assets | `css/dashboard.css` is the only implemented local stylesheet; there are no standalone local JavaScript files, and `ajax/`, `assets/`, `js/`, and public `uploads/` are empty. Permit scans and inspection photos use separate configured private storage roots outside the web root. User Management and permit pages use small inline Bootstrap/interaction initializers. |
+
+No framework router, full shared PHP page layout, Composer/npm manifest, or migration runner is present. Protected pages reuse a shared role-aware sidebar/mobile-navigation component. Focused permit service and local HTTP validation scripts exist under `tests/`.
+
+## Verified Access Flow
+
+```text
+index.php -> pages/index.html
+register.php -> validate + uniqueness check -> hash password
+             -> insert community/pending user -> redirect with flash message
+login.php -> verify CSRF + not throttled (per-identifier/per-IP) + credentials + active status -> record login audit + attempt -> rotate session ID
+          -> superadmin/rps/community/ems dashboard
+restricted page -> reload role/status by session user ID -> enforce role allowlist
+                -> wrong known role redirects to its dashboard
+community profile -> active session user load/update by session id only
+user management -> Superadmin list/search/filter/view/edit/status/password-reset actions
+                -> transactionally record detailed history + general audit
+                -> account status change or password reset also creates recipient notification
+logout.php -> CSRF-protected POST only (405 on GET, 403 on token mismatch) -> record logout audit -> clear session/cookie -> login.php
+community permit -> create/update owner-only draft without transaction ID or notification
+                 -> validate final application + every related tree + declaration
+                 -> lock annual sequence -> assign TCP-YYYY-###### and submission time
+                 -> record seven submission histories + audit + applicant notification
+community scan -> verify active Community ownership + eligible submitted transaction
+               -> validate type/content/size -> random private filename -> pending review
+               -> replacement archives prior version -> audit upload/replacement
+RPS scan review -> verify active RPS + eligible submitted transaction -> accept/reject/request replacement
+                -> preserve online review history + update online summary + audit + applicant notification
+original review -> active RPS or specifically permitted active Superadmin records receipt/wet-ink/comparison/result
+                 -> append decision linked to prior decision -> derive combined document status
+                 -> audit + applicant notification; never approve application
+site inspection -> active RPS or specifically permitted active Superadmin assesses/schedules/assigns
+                -> append schedule/start/result events + related per-tree verification + protected photos
+                -> audit + applicant notification; passed/not-required gates later decision advancement but never approves
+RPS decision -> active RPS or specifically permitted active Superadmin begins/resumes review
+             -> return for correction/request requirements, or recheck all configured evidence and approve/decline
+             -> append linked decision + statuses + audit + applicant notification in one transaction
+             -> approval snapshots trees/classification and configured donation policy/version
+             -> creates one immutable donation requirement, notifies applicant, then awaits donation
+EMS donation receipt -> active EMS finds approved requirements by transaction ID, applicant, application reference, status, or requirement date
+                     -> saves/corrects append-only unfinalized itemized receipts or flags an invalid transaction
+                     -> finalizes physical partial batches and cumulative totals; explicit confirmation is required for over-receipt
+                     -> completed total sets EMS verified + final-RPS-verification eligibility, status history, audit, and Community/RPS notifications
+final RPS donation confirmation -> active RPS or permitted Superadmin confirms an EMS-verified donation
+                                -> donation ems_verified->rps_verified, application awaiting_final_verification->ready_for_release, release not_ready->preparing
+                                -> audit + applicant notification; the permit is not yet released
+permit release -> active RPS or permitted Superadmin enters the exact 50-90 day approved duration (server-bounded)
+              -> create tbl_permits record linked to the approval decision, valid_from = physical release date, derived valid_until, stored duration and validity basis
+              -> release preparing->ready->released, application ready_for_release->released, validity not_issued->active
+              -> audit + applicant notification (directs the applicant to claim the physical permit at the CENRO office) in one transaction
+permit expiration -> scheduled task (scripts/permit_validity_maintenance.php) and opportunistic RPS-work-queue sweep
+                  -> active permits past valid_until become expired (idempotent, per-permit transaction, attributed to the releaser)
+                  -> status history + audit + deduplicated applicant/RPS notification; a single approaching-expiration reminder fires within the warning window
+cutting completion -> active RPS or permitted Superadmin records completion date, verifying personnel, trees actually cut (<= approved), status, remarks for an active released permit
+                   -> validity active->completed, application released->completed; one completion per permit
+                   -> audit + applicant notification
+protected download -> authorize active Community owner, active RPS, or specifically permitted Superadmin
+                   -> resolve private path -> attachment response
+permit status -> reload active actor role + lock application -> validate transition
+              -> update one status domain + history + audit + applicant notification
+```
+
+- Public registration cannot select a role or status; both are assigned server-side.
+- Pending, suspended, and disabled users are rejected at login.
+- Superadmin can activate pending accounts through User Management. The setup helper creates active starter users directly.
+- Shared guards authorize every restricted page using the current database role and active status. Community profile, permit ownership, and every permit-document upload/download are enforced by session ID plus database-backed role/status checks. Online scan review requires the exact active RPS role. Original verification permits active RPS users plus active Superadmins with `permit_original_document_verification`; site-inspection writes permit active RPS users plus active Superadmins with `permit_site_inspection`; review/decision writes permit active RPS users plus active Superadmins with `permit_decision`. EMS receipt writes require the exact active EMS role and an approved application still awaiting donation; Community, RPS, Superadmin, unapproved, completed, and released transactions are denied. Final RPS donation confirmation, signed-permit release, and cutting-completion writes permit active RPS users plus active Superadmins with `permit_decision`; each has a CSRF-protected action page (`permit-final-verification-action.php`, `permit-release-action.php`, `permit-completion-action.php`).
+
+## Verified Roles and Data
+
+| Database role | Protected page | Current functional surface |
+| --- | --- | --- |
+| `superadmin` | `pages/cenro/dashboard.php`, `pages/cenro/user-management.php`, `pages/cenro/audit-history.php`; permit review pages only with a specific permission | Protected dashboard plus account management and a read-only audit-history/login-attempt viewer; specifically permitted Superadmins may independently receive original-verification, site-inspection, and/or permit-decision capabilities but may not perform RPS online-scan review |
+| `rps` | `pages/cenro/dashboard.php`, `pages/cenro/permit-applications.php`, `pages/cenro/permit-application.php` | Protected shared CENRO/RPS dashboard shell plus submitted-permit work queues, protected downloads, online/original document review, site-inspection/tree-verification, and transactional review/decision actions |
+| `community` | `pages/community/dashboard.php`, `pages/community/profile.php`, `pages/community/permit-applications.php`, `pages/community/permit-application.php` | Public registration, login, protected dashboard, owned profile updates, owned permit draft/submission/list/detail workflow, eligible-transaction scan upload/replacement/download, and read-only original-verification/inspection/decision/donation-requirement status and remarks |
+| `ems` | `pages/ems/dashboard.php`, `pages/ems/donation-requirements.php`, `pages/ems/donation-receipt-action.php` | Protected EMS dashboard shell plus filtered approved-transaction discovery, itemized unfinalized receipt/correction history, partial receipt, physical finalization, overage confirmation, invalid-transaction flagging, and final-RPS-verification handoff |
+
+The role enum supports these four role values. The project owner confirmed the RPS and EMS role model. CENRO Superadmin and RPS share `pages/cenro`, while EMS uses `pages/ems` (renamed from the legacy `pages/greenhouse` path). `greenhouse` is no longer a database role or route; it survives only as a one-way legacy-role migration (`greenhouse` -> `ems`) in the schema/setup. CENRO remains the official organization name.
+
+The verified tables are:
+
+```text
+tbl_users(
+  id PK,
+  fname, mname, lname, email UNIQUE, contact, address,
+  username UNIQUE, password,
+  role ENUM(superadmin, community, rps, ems),
+  status ENUM(pending, active, suspended, disabled),
+  created_at, updated_at
+)
+
+tbl_user_permissions(user FK, permission key, active/revoked state, grantor FK, timestamps)
+
+tbl_user_management_audit(
+  id PK,
+  actor_user_id FK -> tbl_users.id,
+  target_user_id FK -> tbl_users.id,
+  action, previous_role, new_role,
+  previous_status, new_status, changed_fields,
+  created_at
+)
+
+tbl_audit_trail(
+  id PK,
+  actor_user_id FK -> tbl_users.id,
+  category, action,
+  entity_type, entity_id,
+  description, details,
+  ip_address, user_agent,
+  created_at
+)
+
+tbl_login_attempts(
+  id PK,
+  identifier, nullable user_id FK -> tbl_users.id (ON DELETE SET NULL),
+  ip_address, user_agent, was_successful,
+  created_at
+)
+
+tbl_notifications(
+  id PK,
+  recipient_user_id FK -> tbl_users.id,
+  created_by_user_id FK -> tbl_users.id,
+  notification_type, title, message,
+  entity_type, entity_id,
+  read_at, created_at
+)
+
+tbl_permit_transaction_sequences(sequence_year PK, last_number, updated_at)
+
+tbl_permit_applications(
+  id PK, nullable transaction_id UNIQUE,
+  submission_key UNIQUE per applicant,
+  applicant_user_id FK -> tbl_users.id,
+  applicant identity snapshot, applicant/organization type,
+  ownership/authorization, property classification/location/district, cutting purpose,
+  application/document/inspection/decision/donation/release/validity statuses,
+  declaration_confirmed_at, nullable submitted_at, updated_at
+)
+
+tbl_permit_trees(application_id FK, species/quantity/measurements)
+tbl_permit_status_history(application_id FK, domain, previous/new status, actor FK, timestamp)
+tbl_permit_documents(application_id FK, uploader/verifier FKs, file metadata, verification state, current-version marker, replacement FK, archive timestamp)
+tbl_permit_document_reviews(application/document FKs, document type, online/original scope, result, previous-review FK, original receipt/date/receiver, wet-ink requirements/result, scan comparison, verifier, remarks, timestamp)
+tbl_permit_inspections(application/previous/follow-up FKs, assigned/creating/completing personnel FKs, status/schedule/location/coordinates, confirmations/findings/recommendation)
+tbl_permit_inspection_tree_verifications(application/inspection/tree FKs, species/count/measurement confirmations and verified values)
+tbl_permit_inspection_photos(application/inspection/uploader FKs, private file metadata and timestamp)
+tbl_permit_decisions(application_id FK, previous-decision FK, decision actor FK, event/result, notes/conditions, approved-tree/property/donation snapshots, timestamp)
+tbl_permit_donation_requirements(application_id UNIQUE FK, approval-decision FK, property/policy/version snapshots, required/received totals, basis/instructions, RPS actor/status/timestamps)
+tbl_permit_donation_verifications(requirement/previous-version FKs, receipt/action keys, version/current/finalized markers, receiving/recording EMS FKs, receipt/result/timestamps)
+tbl_permit_donation_verification_items(verification FK, seedling species/type, positive quantity)
+tbl_permits(application UNIQUE FK, approved decision FK, preparer/releaser FKs, permit number, release/validity dates,
+            approved_duration_days, validity_start_basis, expiry_warning/expired notification markers, completed_at,
+            signed-permit scan (permit_file_path/original_name/mime/size, uploader FK, uploaded_at),
+            signed_on, signed_by_name, released_to_recipient)
+tbl_permit_cutting_completions(application UNIQUE FK, permit FK, completion status, trees_cut_count, completed_on,
+            verifying-personnel FK, recording-personnel FK, remarks)
+tbl_permit_cutting_completion_evidence(application FK, completion FK, private file metadata, uploader FK)
+```
+
+`tbl_user_management_audit` preserves account-specific before/after history, while `tbl_audit_trail` provides reusable cross-module events and `tbl_notifications` stores per-user delivery records. Permit audit/notification entity references remain polymorphic, while permit-domain foreign keys remain restrictive with no destructive delete cascades. The Community permit registry now uses owner-scoped service queries; dashboard metrics remain static.
+
+Permit status architecture uses seven independent current-state columns plus one shared history table:
+
+| Domain | Initial state | Purpose |
+| --- | --- | --- |
+| Application | `draft`, then `submitted` at final submission | Owner editing before submission, then overall processing through review, approval/decline, donation, release, completion, or closure |
+| Document | `pending` | Combined online and original-document summary; full completion progresses through `online_verified`, `originals_verified`, then `verified` |
+| Inspection | `pending_assessment` | Assessment, scheduling/rescheduling, in-progress work, passed/failed/further-evaluation results, follow-up, or cancellation |
+| Decision | `pending` | Append-only RPS review progression through active review/return and a terminal approval or decline |
+| Donation | `not_required` | Requirement, pending/itemized partial receipt, invalid-transaction flag, EMS verification, and final RPS verification |
+| Release | `not_ready` | Permit preparation, readiness, release, withholding |
+| Validity | `not_issued` | Active, completed, expired, or closed permit validity |
+
+## Verified Security Boundaries
+
+- Session cookies use `httponly`, `samesite=Lax`, path `/`, and `secure` only when HTTPS is detected.
+- PDO uses exception mode, associative fetches, UTF-8, and native prepared statements.
+- Login, registration, and logout use CSRF tokens and prepared queries. Logout is a POST-only action (405 on GET) guarded by a session-scoped token generated in `require_roles()`, so a cross-site request cannot force a session to end; every logout button across all role pages posts this token.
+- Login is throttled by independent sliding-window counters: 5 failures per normalized identifier and 20 failures per IP within 15 minutes (all configurable via `CERTREEFY_LOGIN_MAX_ATTEMPTS_PER_IDENTIFIER`/`_PER_IP`/`CERTREEFY_LOGIN_LOCKOUT_MINUTES`). Every attempt, successful or not, is recorded in `tbl_login_attempts` with the responsible user when known; neither counter mutates account status.
+- Passwords use `password_hash(PASSWORD_DEFAULT)` and `password_verify()`.
+- Login rotates the session ID and accepts only `active` accounts.
+- Successful login and authenticated logout events record the responsible user, database timestamp, request IP when valid, and user agent in the general audit trail. Logout still destroys the session if its audit write fails.
+- Dynamic form/session output uses shared `includes/view.php` helper `e()` around `htmlspecialchars(..., ENT_QUOTES, 'UTF-8')`.
+- Every restricted request reloads the account role/status from `tbl_users`; missing, pending, suspended, disabled, or unknown-role sessions cannot render protected content.
+- Every restricted request also enforces idle (30 min default) and absolute (480 min default) session timeouts before any other check; an expired session is destroyed and redirected to a login-page explanation. Both durations are configurable and a session with no tracking timestamps yet is treated as freshly started.
+- User Management requires the exact `superadmin` role, uses CSRF tokens and prepared statements, protects all Superadmin records from modification, restricts assignable roles to `community`/`rps`/`ems`, and records detailed history plus a general audit event in the same transaction. Status changes also create an account-status notification for the affected user in that transaction.
+- Notification types are restricted by the shared helper to permit status, donation verification, account status, and system announcement events. Audit categories are restricted to authentication, user management, permit, approval, and verification; specific snake-case actions remain extensible.
+- Permit draft creation/update requires an active database-backed `community` account, uses CSRF-protected pages, stores only valid non-empty related tree rows, snapshots applicant identity, and assigns ownership by foreign key. Drafts have no transaction ID/submission timestamp and are hidden from processing roles.
+- Final submission revalidates every required application field, location coordinates, tree record, conditional organization/authorization information, and declaration on the server. It atomically locks the draft, assigns initial states, histories, audit, notification, and submission timestamps. A per-applicant 64-character submission key makes retries idempotent.
+- `TCP-YYYY-######` transaction IDs are reserved centrally under an InnoDB annual-sequence row lock only at final submission and are also protected by a nullable unique database index. The internal application primary key remains independent.
+- Ownership-aware reads allow Community users only their own application, allow RPS/Superadmin oversight after submission, and expose an application to EMS only after a donation requirement exists. EMS mutations recheck the active exact role, approval, awaiting-donation state, and locked requirement immediately before writes. Generic status mutation cannot bypass the action-specific donation receipt writer. Only `draft` is Community-editable; all submitted and terminal states render read-only.
+- Permit-document uploads accept only PDF, JPEG, and PNG files up to a configurable limit that defaults to 10 MB. Validation pairs an allowlisted extension with fileinfo-detected MIME, checks PDF/image signatures and structure, rejects PDF active/embedded-content tokens, ignores client-provided MIME, and generates a random collision-resistant server filename.
+- Permit documents are stored under a configurable root outside the public web root by default. Only normalized relative paths are recorded. Downloads resolve and contain the path under that private root, recheck role/ownership, and return an attachment with `nosniff`, restrictive content security, and no-store cache headers.
+- Community document writes require the active owner and an eligible submitted review-stage application. Draft and locked/terminal transactions are rejected. RPS online reviews require the exact active RPS role and preserve each replacement plus its review records; Community cannot replace an accepted current scan. Every upload/replacement/review records the responsible user and database timestamp through the reusable audit/notification services as applicable.
+- Original verification is a separate append-only `original` review scope. Each decision records current scan association, document type, receipt/date/personnel, wet-ink requirement/result, comparison, result, remarks, server verification time, verifying user, and the prior decision link. Online scan fields are not rewritten by original verification.
+- A verified original requires a received hardcopy, nonfuture receipt date, active authorized receiving personnel, verification of any required wet-ink signature, comparison with the currently accepted scan, and a `verified` result. Rejection, replacement, missing originals, and unverified required signatures require remarks. Identical repeated/concurrent decisions are rejected after application locking.
+- Required current scans must be accepted and every required original must be verified against the matching current scan before the combined document status reaches `originals_verified` then `verified`. Application advancement to inspection/decision/approval and later states, plus decision approval, is gated on this derived `verified` state. The generic status API cannot assert original completion, and the original module never approves an application.
+- An original replacement request allows the owner to replace an otherwise accepted scan while preserving both scan and original-review histories. Action-required original decisions notify the owner; every stored decision creates a verification audit.
+- Inspection assessment, scheduling, rescheduling, assignment, start, completion, cancellation, and follow-up run through one transactional service. Each action locks the application, checks the expected latest event, appends an inspection snapshot and status history, records the responsible user, audits the action, and notifies the applicant. Repeated stale actions write nothing.
+- Completion requires actual inspection time, findings, recommendation, property/location and ownership/authorization answers, and exactly one valid verification row for every application tree. Application-supplied measurements trigger corresponding measured-value and confirmation requirements. A passed result requires all confirmations; failed/further-evaluation results remain evidence only.
+- Inspection photos accept only JPEG/PNG content up to a separately configurable limit defaulting to 10 MB, use the shared extension/MIME/image validation, receive random filenames, and reside under a separate private root. The controlled inline endpoint is limited to active inspection-authorized personnel, returns `nosniff`/sandbox/no-store headers, and does not expose Community users to photo evidence. Community owner reads omit inspection coordinates and remain owner-scoped.
+- Application advancement to decision review and later processing now requires either `inspection_status=passed` or an authorized `not_required` assessment in addition to original-document completion. The inspection module never changes application decision/approval state.
+- RPS review actions run through one transactional decision service. Begin/resume, return for correction, and request-requirements actions lock the application, validate the expected latest decision event, append a linked event, update status history, audit the responsible actor, and notify the applicant. Generic status changes cannot write the decision domain.
+- Approval rechecks required application fields/declaration and tree records; accepted current scans; matching original receipt, wet-ink, and scan-comparison decisions; passed/not-required inspection evidence; active review; and absence of a blocking return. Approved tree count is bounded by application or verified inspection totals. Property classification and donation quantity are read from server state, not the request.
+- Approval appends the approving actor/date/remarks/conditions and evidence snapshots, advances to `awaiting_donation`, and creates exactly one approval-linked donation requirement. The requirement snapshots property classification, policy code/version, quantity, instructions, zero initial received total, basis, actor, and time. Decline requires a reason, appends the responsible actor/date, enters terminal declined states, creates no donation, and prevents conflicting decisions. Database errors roll back decision, status, donation, audit, and notification writes together. Neither action creates a `tbl_permits` row or releases a permit.
+- Donation policy is centralized in `config/permit_policy.php` and supports environment overrides for quantities, version, and instructions. Defaults are 100 seedlings for `public_domain` and 50 for `private_property`; new approvals use the current configuration while existing requirement rows retain the policy and quantity applied at their approval.
+- The reusable donation service refuses writes outside an active transaction, rejects unapproved/declined applications and invalid classifications, validates the linked approval event and actor, and checks for an existing application requirement before insert. The database also enforces one requirement per application and an application-matching approval-decision foreign key.
+- Community owners and authorized RPS/decision-Superadmin users read the same requirement snapshot, including required, received, remaining, status, instructions, basis, and approval remarks. EMS can discover approved requirements by transaction ID through a GET-only registry; no role can edit quantities from these displays. Every view warns that donation requirement creation is not permit-release readiness.
+- Profile and Community permit ownership are enforced server-side. EMS donation receipts are action-specific, CSRF-protected, idempotent, and transactionally role/status gated.
+- The post-approval lifecycle in `includes/permit_release.php` is transactional and gate-checked. Final RPS confirmation requires an EMS-verified donation whose received total meets the requirement. Release re-asserts donation-verified, documents-verified, and passed/not-required inspection state, bounds the duration to 50-90 days on the server, reads property/duration from server state, and blocks a second release via the one-permit-per-application unique key. Expiration and cutting completion never extend or reactivate a permit; expiration is terminal and completion is one-per-permit. Generic `permit_change_status` is not exposed by any page, so release/validity/donation domains cannot be mutated outside their dedicated services. The validity-start rule (release vs signing vs effectivity date) is an unverified business decision implemented with the physical release date and stored per permit.
+
+## Existing Pages and Design
+
+| Reference purpose | File | Reusable design | Backend connection |
+| --- | --- | --- | --- |
+| Public page | `pages/index.html` | Sticky navbar, hero, service/process cards, statistics, FAQ accordion, contact/map, footer | Static; CTAs link to auth. Service claims and statistics are UI-only. |
+| Login form | `pages/auth/login.php` | Poppins, split auth shell, Bootstrap controls and danger alert | Credential/status query, successful-login audit, and session creation |
+| Registration form | `pages/auth/register.php` | Poppins, split form shell, labeled controls, success/error alerts | Validation, duplicate check, password hash, user insert |
+| Community dashboard | `pages/community/dashboard.php` | Community sidebar/offcanvas, metric/module cards, request docket, account snapshot | Database-backed `community` role/status guard |
+| Community profile | `pages/community/profile.php` | Community dashboard shell, Bootstrap form/alerts, account snapshot | Active-role ownership query, validation, duplicate checks, prepared update |
+| Community permit registry | `pages/community/permit-applications.php` | Community dashboard shell, responsive Bootstrap table, status badges, empty state | Active-Community guard and owner-scoped application/tree totals |
+| Community permit form/detail | `pages/community/permit-application.php` | Community dashboard shell, Bootstrap sections/alerts/controls, dynamic related-tree cards, application snapshot, document cards/progress/history, read-only inspection/decision tables and shared donation card | CSRF, owner-only load/edit, draft/final PRG, server validation, read-only submitted/inspection/decision and immutable donation policy/quantity/progress/instruction data, eligible scan upload/replacement/download |
+| CENRO/RPS dashboard | `pages/cenro/dashboard.php` | CENRO sidebar/offcanvas, metric/module cards, operations docket, system snapshot | Database-backed `superadmin`/`rps` role/status guard |
+| RPS permit review/decision | `pages/cenro/permit-applications.php`, `pages/cenro/permit-application.php`, document/inspection routes, `permit-decision-action.php` | Existing CENRO shell, responsive work-queue/detail tables, cards, progress, badges, alerts, and Bootstrap review/schedule/findings/decision modals | Active RPS or capability-specific Superadmin access; server-derived queue filters/readiness; document and inspection evidence; append-only begin/return/request/approval/decline actions; CSRF/PRG, transactions, history/audit/notification writes |
+| User Management | `pages/cenro/user-management.php` | CENRO shell, status metrics, Bootstrap filters/table/pagination, view/edit/status/reset-password modals | Superadmin-only prepared queries, transactional updates, protected-role rules, detailed/general audits, and account-status/password-reset notifications |
+| Audit History | `pages/cenro/audit-history.php` | CENRO shell, Bootstrap filters/table/pagination (two independent sections) | Superadmin-only read-only registries: general audit trail (actor/category/action/entity/description/details/IP/timestamp) and login attempts (identifier/matched account/result/IP/timestamp), each filterable and paginated without disturbing the other section's filters |
+| EMS dashboard | `pages/ems/dashboard.php` | EMS sidebar/offcanvas, inventory cards, movement docket, snapshot | Database-backed `ems` role/status guard; renamed from the legacy `pages/greenhouse` path |
+| EMS permit donations | `pages/ems/donation-requirements.php`, `pages/ems/donation-receipt-action.php` | Existing EMS shell, expanded filters, responsive Bootstrap registry/history tables, status badges, receipt form, item rows, alerts, and flag modal | Active-EMS-only approved requirement reads and CSRF/PRG receipt mutations; approval-time required quantity remains immutable |
+| Protected dashboard styling | `css/dashboard.css` | Shared responsive layout, navigation, cards, panels, badges, and buttons | Presentation only |
+
+Dashboard component vocabulary includes `app-shell`, `sidebar`, `mobile-topbar`, `offcanvas-registry`, `page-header`/`hero-band`, `ledger-card`, `registry-card`, `docket-panel`, `snapshot-panel`, `count-badge`, and `status-ready`.
+
+Protected-page navigation is rendered by `includes/navigation.php` for both the existing desktop sidebar and mobile offcanvas. It preserves the role-specific module sets, exposes User Management and Audit History only to `superadmin`, conditionally exposes permit review to Superadmins with original-verification, site-inspection, or permit-decision permission, retains Documents for original-verification permission, exposes Permit Donations to EMS, and applies the active-page class and `aria-current` marker from a page key supplied by each protected page. Page guards remain the server-side authorization boundary.
+
+All twelve role-dashboard metric values are hardcoded `0`; remaining unimplemented domain-module links use `href="#"`; "Ready" labels are static. Community Profile, Tree Permit/Application Status, RPS/authorized-Superadmin Permit Applications/Documents, EMS Permit Donations, and Superadmin User Management/Audit History links are functional. The full Phase 2 permit lifecycle (submission through completion or expiration) is implemented, including final RPS donation confirmation and permit release. No printable-record template exists. New protected pages should derive from the closest role dashboard and continue using `css/dashboard.css`.
+
+## Current Module Map
+
+| Module | Main files | Verified responsibility |
+| --- | --- | --- |
+| Runtime/database | `config/config.php` | Session, error mode, PDO connection, timezone |
+| Shared helpers | `includes/auth.php`, `includes/permissions.php`, `includes/audit.php`, `includes/notifications.php`, `includes/permit.php`, `includes/permit_workflow.php`, `includes/permit_documents.php`, `includes/permit_inspections.php`, `includes/permit_decisions.php`, `includes/permit_donations.php`, `includes/permit_donation_receipts.php`, `includes/permit_release.php`, `includes/permit_donation_view.php`, `includes/navigation.php`, `includes/user.php`, `includes/user_management.php`, `includes/view.php` | Database-backed authentication/RBAC/action-permission guards, reusable audit/notification writes, permit creation/status/ownership/gate services, private scan/original verification, append-only inspection/tree/photo services, review queues/readiness/transactional decisions, immutable policy-versioned donation requirements and shared display, EMS receipt/verification, post-approval final-confirmation/release/validity/expiration/cutting-completion lifecycle, role/permission-aware navigation, user validation/conflicts, user registry queries/history, output escaping |
+| Schema/setup | `config/schema.sql`, `config/create_database_and_tables.php`, `config/permit_policy.php`, `config/create_users.php` | Create users, notification, audit, permit workflow, and cutting-completion tables plus permit validity/expiration columns; centralize configurable donation and validity policy (50-90 day term, start basis, expiry-warning window); migrate legacy roles/statuses and donation snapshots; optionally insert four-role starter accounts |
+| Validity maintenance | `scripts/permit_validity_maintenance.php` | CLI-only scheduled task that lapses expired permits and sends approaching-expiration reminders independent of any page access |
+| Authentication | `pages/auth/*.php` | Community registration, audited login, role redirect, audited logout |
+| Community profile | `pages/community/profile.php` | Session-owned profile load/update with duplicate checks |
+| User management | `pages/cenro/user-management.php` | Superadmin account registry, search/filter/pagination, details, protected edits, status transitions, admin-initiated password reset, detailed/general audit history, account-status/password-reset notifications |
+| Audit history viewer | `pages/cenro/audit-history.php`, `includes/audit.php`, `includes/auth.php` | Superadmin-only read-only general-audit-trail and login-attempt registries, each independently filterable (actor/category/date range or identifier/result/date range) and paginated without resetting the other section |
+| Notifications and audit | `includes/notifications.php`, `includes/audit.php` | Validated reusable creation for the four notification types and five audit categories; current producers are authentication, User Management, permit draft/submission/status/scan/original-document/inspection actions, approval, and donation verification |
+| Community permit application | `pages/community/permit-applications.php`, `pages/community/permit-application.php`, `includes/permit.php`, `includes/permit_workflow.php`, permit schema tables | Owner-only drafts/list/detail, multiple related trees, final server validation, idempotent PRG submission, locked human-readable IDs, post-submit read-only application data, independent histories, audit and notification |
+| Permit documents | `includes/permit_documents.php`, Community upload/download/detail routes, CENRO registry/detail/online-review/original-review/download routes, permission and permit-document schema tables | Private scan intake/version/download, owner/RPS/exceptional-Superadmin authorization, separate online/original histories, receipt/wet-ink/comparison decisions, combined completion/gates, audit, and notification |
+| Permit site inspection | `includes/permit_inspections.php`, Community/CENRO permit detail, CENRO inspection action/photo routes, inspection schema tables | Authorized assessment/schedule/reschedule/assignment/start/completion/follow-up, per-tree verification, private photo delivery, owner read-only status/results, advancement gate, history, audit, and notifications |
+| Permit review and decision | `includes/permit_decisions.php`, Community/CENRO permit detail, CENRO work queue and decision-action route, decision/donation schema tables | Server-derived queues/readiness, RPS or permitted-Superadmin begin/return/request/approval/decline, linked immutable events, server donation calculation, owner read-only results, terminal locks, rollback, history, audit, and notifications |
+| Permit donation requirement | `config/permit_policy.php`, `includes/permit_donations.php`, `includes/permit_donation_view.php`, Community/CENRO permit detail, EMS donation registry, decision/donation schema tables | Approval-only policy/classification calculation, immutable applied version/quantity/instructions, one requirement per approval, received/remaining snapshot, owner/RPS shared display, EMS transaction discovery, notification, rollback, and read-only authorization |
+| EMS donation receipt | `includes/permit_donation_receipts.php`, EMS donation registry/receipt endpoint, donation schema tables | EMS-only filtered discovery, itemized positive quantities, unfinalized append-only correction versions, immutable finalized batches, partial/cumulative totals, explicit overage confirmation, invalid flag, PRG/idempotency, final-RPS-verification handoff, history, audit, notifications, and forced rollback |
+| Permit release lifecycle | `config/permit_policy.php`, `includes/permit_release.php`, CENRO permit detail, `permit-final-verification-action.php`, `permit-release-action.php`, `permit-signed-upload-action.php`, `permit-signed-download.php`, `permit-completion-action.php`, `permit-completion-evidence-download.php`, `scripts/permit_validity_maintenance.php`, Community permit detail + `permit-signed-download.php` + `permit-completion-evidence-download.php`, permit/completion schema tables | Final RPS donation confirmation, transactional signed-permit preparation/release, server-bounded 50-90 day validity with stored duration and start basis, derived expiration date, idempotent scheduled+opportunistic expiration/expiry-reminder sweeps, post-release signed-permit scan upload into the private permit-document root (optional signing personnel/date and recipient) with protected RPS/owner download and replacement cleanup, cutting-completion recording (personnel, trees cut, status, remarks) with optional multi-photo evidence attachment and protected RPS/owner download, owner read-only display, terminal no-extension guarantee, history, audit, notifications, and rollback |
+| Role dashboards | `pages/*/dashboard.php`, `css/dashboard.css` | Role-gated responsive shells with placeholder modules |
+
+Feature completeness and planned/unverified modules are maintained only in `docs/ai/IMPLEMENTATION_STATUS.md`.
+
+## Unverified Domain Requirements
+
+The following policy and UI requirements remain for future work even though their backend data structures now exist:
+
+- Coverage is intended to include Districts 3 and 4 of Laguna; the repository mentions Sta. Cruz jurisdiction but not those districts.
+- The primary workflow is Tree Cutting Permit processing and release; Community intake, online/original document review, site inspection, review decisions, policy-versioned donation requirements, EMS receipt/physical verification, final RPS donation confirmation, signed-permit release, signed-permit scan upload/protected download, validity/expiration, cutting completion, and completion-evidence attachment are all implemented. The official permit itself is claimed physically at the CENRO office (project-owner decision); the system communicates pickup status rather than generating a permit document, so there is no remaining digital-generation gap.
+- Creation/status, document, inspection, decision, EMS donation-receipt, final-confirmation, release, expiration, and cutting-completion permissions are verified in shared services.
+- The displayed checklist is a provisional baseline pending CENRO/RPS confirmation of official required document types and per-type wet-ink rules. Uploaded scans remain separate from original hardcopy and wet-ink verification.
+
+Proposed workflow:
+
+```text
+Community submits application -> transaction ID generated
+-> RPS reviews online data and original documents
+-> RPS records site/tree verification -> RPS approves or declines
+-> approved applicant donates seedlings to EMS using transaction ID
+-> EMS verifies receipt -> RPS confirms compliance
+-> RPS releases signed permit and attaches final scan
+-> permit remains active until completion or expiration
+```
+
+| Proposed rule | Verification state |
+| --- | --- |
+| Approval and permit release are separate events | Verified in independent decision/release domains and separate decision/permit records |
+| Human-readable transaction ID links the full lifecycle | Verified `TCP-YYYY-######` locked generator plus unique index |
+| Public-domain donation is 100 seedlings; private property is 50 | Implemented as configurable, versioned policy defaults used only at authorized approval; each requirement preserves the applied policy and quantity |
+| Permit validity is 50-90 days with no extension | Implemented and verified; the exact approved duration is entered at release, server-bounded to 50-90 days (`config/permit_policy.php`), stored on `tbl_permits`, and used to derive `valid_until`. No extension or reactivation path exists; expiration is terminal |
+| Validity begins at approval, signing, effectivity, or release | Implemented with the physical release date as the least-risky basis; still an UNVERIFIED office rule. The chosen basis is stored per permit (`validity_start_basis`) and overridable via `CERTREEFY_PERMIT_VALIDITY_START_BASIS`; a project-owner decision is required to confirm |
+| RPS or a specifically authorized Superadmin decides; RPS releases and EMS verifies donations | Verified end-to-end: decision, EMS receipt, final RPS donation confirmation, signed-permit release, expiration, and cutting-completion writers/pages all enforce active RPS or `permit_decision`-permitted Superadmin authority (EMS for donation receipt) |
+| Community users may access only their own private transactions | Verified by applicant FK, ownership-aware data access, and HTTP-tested Community list/detail routes |
+| Sensitive actions preserve status history and audit records | Verified for draft creation/update, final submission, document verification, every persisted inspection action, every persisted review/decision action, and every persisted EMS donation action; future final-RPS/release writers must reuse these services |
+
+## Confirmed Mismatches
+
+- Landing copy advertises permits, illegal-logging reports, seedling requests, area verification, tracking, and a fully digital process; Community permit routes/pages now exist, but downstream permit processing and the other advertised modules remain incomplete.
+- The external hardcopy/wet-signature requirement conflicts with the landing page's "Fully Digital" claim and needs a product decision before implementation.
+- RPS and CENRO Superadmin share one dashboard shell; permit action differences are enforced server-side by role plus independent original-verification, site-inspection, and permit-decision permissions.
+- Dashboard counts and readiness labels imply live functionality while remaining static presentation.

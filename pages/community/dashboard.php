@@ -1,7 +1,7 @@
 <?php
 /**
  * ============================================================
- * File     : community/dashboard.php
+ * File     : pages/community/dashboard.php
  * Project  : CERTREEFY - CENRO Electronic Registry for Tree
  *            Regulation, Environmental Enforcement, and Facilitation System
  * Purpose  : Starter landing dashboard for Community users.
@@ -15,39 +15,13 @@
  */
 
 require_once __DIR__ . '/../../config/config.php';
+require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/navigation.php';
+require_once __DIR__ . '/../../includes/view.php';
 
-function e(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
+require_role($pdo, 'community');
 
-function dashboard_path_for_role(string $role): string
-{
-    $routes = [
-        'superadmin' => '../cenro/dashboard.php',
-        'community'  => '../community/dashboard.php',
-        'greenhouse' => '../greenhouse/dashboard.php',
-    ];
-
-    return $routes[$role] ?? '';
-}
-
-function require_role(string $requiredRole): void
-{
-    if (empty($_SESSION['id']) || empty($_SESSION['role'])) {
-        header('Location: ../auth/login.php');
-        exit;
-    }
-
-    if ($_SESSION['role'] !== $requiredRole) {
-        $redirectPath = dashboard_path_for_role((string) $_SESSION['role']);
-        header('Location: ' . ($redirectPath !== '' ? $redirectPath : '../auth/logout.php'));
-        exit;
-    }
-}
-
-require_role('community');
-
+$currentRole = (string) $_SESSION['role'];
 $displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Community User';
 $todayLabel = date('l, F j, Y');
 ?>
@@ -69,62 +43,7 @@ $todayLabel = date('l, F j, Y');
     <a href="#main-content" class="skip-link">Skip to main content</a>
 
     <div class="app-shell">
-        <aside class="sidebar" aria-label="Community dashboard navigation">
-            <div class="brand-block">
-                <span class="registry-seal" aria-hidden="true"><i class="bi bi-tree-fill"></i></span>
-                <div>
-                    <div class="brand-word">CERTREEFY</div>
-                    <div class="brand-sub">Community Portal</div>
-                </div>
-            </div>
-
-            <nav class="nav-panel" aria-label="Community dashboard navigation">
-                <a class="active" href="dashboard.php"><i class="bi bi-grid-1x2-fill"></i><span>Dashboard</span></a>
-                <a href="#"><i class="bi bi-file-earmark-plus"></i><span>Tree Permit</span></a>
-                <a href="#"><i class="bi bi-clock-history"></i><span>Application Status</span></a>
-                <a href="#"><i class="bi bi-flower1"></i><span>Seedling Request</span></a>
-                <a href="#"><i class="bi bi-shield-exclamation"></i><span>Report Logging</span></a>
-                <a href="#"><i class="bi bi-megaphone"></i><span>Advisories</span></a>
-                <a href="#"><i class="bi bi-person-circle"></i><span>Profile</span></a>
-            </nav>
-
-            <div class="nav-divider"></div>
-            <div class="sidebar-footer">
-                <a href="../auth/logout.php"><i class="bi bi-box-arrow-right"></i><span>Logout</span></a>
-            </div>
-        </aside>
-
-        <div class="mobile-topbar">
-            <div class="d-flex align-items-center gap-2">
-                <span class="registry-seal" aria-hidden="true"><i class="bi bi-tree-fill"></i></span>
-                <span class="brand-word">CERTREEFY</span>
-            </div>
-            <button class="btn-menu-toggle" type="button" data-bs-toggle="offcanvas" data-bs-target="#mobileNav" aria-controls="mobileNav" aria-label="Open navigation menu">
-                <i class="bi bi-list"></i>
-            </button>
-        </div>
-
-        <div class="offcanvas offcanvas-start offcanvas-registry" tabindex="-1" id="mobileNav" aria-labelledby="mobileNavLabel">
-            <div class="offcanvas-header">
-                <h2 id="mobileNavLabel" class="brand-word h6 mb-0">Navigation</h2>
-                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
-            </div>
-            <div class="offcanvas-body">
-                <nav class="nav-panel" aria-label="Community mobile navigation">
-                    <a class="active" href="dashboard.php"><i class="bi bi-grid-1x2-fill"></i><span>Dashboard</span></a>
-                    <a href="#"><i class="bi bi-file-earmark-plus"></i><span>Tree Permit</span></a>
-                    <a href="#"><i class="bi bi-clock-history"></i><span>Application Status</span></a>
-                    <a href="#"><i class="bi bi-flower1"></i><span>Seedling Request</span></a>
-                    <a href="#"><i class="bi bi-shield-exclamation"></i><span>Report Logging</span></a>
-                    <a href="#"><i class="bi bi-megaphone"></i><span>Advisories</span></a>
-                    <a href="#"><i class="bi bi-person-circle"></i><span>Profile</span></a>
-                </nav>
-                <div class="nav-divider"></div>
-                <div class="sidebar-footer">
-                    <a href="../auth/logout.php"><i class="bi bi-box-arrow-right"></i><span>Logout</span></a>
-                </div>
-            </div>
-        </div>
+        <?php render_certreefy_navigation($currentRole, 'dashboard'); ?>
 
         <main class="main" id="main-content">
             <section class="page-header mb-4">
@@ -140,9 +59,12 @@ $todayLabel = date('l, F j, Y');
                             <span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span>
                             <?php echo e($displayName); ?>
                         </span>
-                        <a href="../auth/logout.php" class="btn-logout-outline">
-                            <i class="bi bi-box-arrow-right"></i> Logout
-                        </a>
+                        <form method="post" action="../auth/logout.php">
+                            <input type="hidden" name="csrf_token" value="<?php echo e((string) ($_SESSION['csrf_logout_token'] ?? '')); ?>">
+                            <button type="submit" class="btn-logout-outline">
+                                <i class="bi bi-box-arrow-right"></i> Logout
+                            </button>
+                        </form>
                     </div>
                 </div>
 
@@ -205,7 +127,7 @@ $todayLabel = date('l, F j, Y');
                             <span class="registry-icon"><i class="bi bi-tree"></i></span>
                             <h3>Tree Cutting Permit</h3>
                             <p>Application details, tree information, location, and documents.</p>
-                            <a class="link-open" href="#">Open module <i class="bi bi-arrow-right"></i></a>
+                            <a class="link-open" href="permit-applications.php">Open module <i class="bi bi-arrow-right"></i></a>
                         </div>
                     </div>
                     <div class="col-md-6 col-xl-3">
@@ -284,7 +206,7 @@ $todayLabel = date('l, F j, Y');
                             <span class="status-ready">Ready</span>
                         </div>
                         <div class="snapshot-row">
-                            <span class="text-secondary"><span class="status-dot"></span>Greenhouse requests</span>
+                            <span class="text-secondary"><span class="status-dot"></span>EMS requests</span>
                             <span class="status-ready">Ready</span>
                         </div>
                     </div>

@@ -1,7 +1,7 @@
 <?php
 /**
  * ============================================================
- * File     : connection/create_users.php
+ * File     : config/create_users.php
  * Project  : CERTREEFY
  * Purpose  : One-time utility to create default system users.
  *
@@ -27,15 +27,27 @@ $users = [
         'status'   => 'active'
     ],
     [
-        'fname'    => 'Greenhouse',
+        'fname'    => 'RPS',
         'mname'    => '',
         'lname'    => 'Officer',
-        'email'    => 'greenhouse@certreefy.gov.ph',
+        'email'    => 'rps@certreefy.gov.ph',
         'contact'  => '09123456780',
-        'address'  => 'Greenhouse Office',
-        'username' => 'greenhouse',
-        'password' => 'Greenhouse@123',
-        'role'     => 'greenhouse',
+        'address'  => 'CENRO Sta. Cruz, Laguna',
+        'username' => 'rps',
+        'password' => 'RPS@1234',
+        'role'     => 'rps',
+        'status'   => 'active'
+    ],
+    [
+        'fname'    => 'EMS',
+        'mname'    => '',
+        'lname'    => 'Officer',
+        'email'    => 'ems@certreefy.gov.ph',
+        'contact'  => '09123456782',
+        'address'  => 'CENRO Sta. Cruz, Laguna',
+        'username' => 'ems',
+        'password' => 'EMS@1234',
+        'role'     => 'ems',
         'status'   => 'active'
     ],
     [
@@ -138,9 +150,14 @@ try {
             <td>Admin@123</td>
         </tr>
         <tr>
-            <td>Greenhouse</td>
-            <td>greenhouse</td>
-            <td>Greenhouse@123</td>
+            <td>RPS User</td>
+            <td>rps</td>
+            <td>RPS@1234</td>
+        </tr>
+        <tr>
+            <td>EMS User</td>
+            <td>ems</td>
+            <td>EMS@1234</td>
         </tr>
         <tr>
             <td>Community</td>

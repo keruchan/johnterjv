@@ -20,30 +20,8 @@
  */
 
 require_once __DIR__ . '/../../config/config.php';
-
-// ------------------------------------------------------------
-// Helper functions
-// ------------------------------------------------------------
-
-/**
- * Escape output before rendering it into HTML.
- * This keeps submitted values display-safe without corrupting the
- * original data that will be validated and stored through PDO.
- */
-function e(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
-
-/**
- * Count text length in characters when mbstring is available.
- * The fallback still protects the database field sizes on systems
- * where mbstring is not enabled.
- */
-function text_length(string $value): int
-{
-    return function_exists('mb_strlen') ? mb_strlen($value, 'UTF-8') : strlen($value);
-}
+require_once __DIR__ . '/../../includes/user.php';
+require_once __DIR__ . '/../../includes/view.php';
 
 // ------------------------------------------------------------
 // Initial page state
@@ -54,15 +32,7 @@ $successMessage = '';
 
 // Keep form values in one array so fields can be safely repopulated
 // after validation errors. Password fields are intentionally excluded.
-$formData = [
-    'fname'    => '',
-    'mname'    => '',
-    'lname'    => '',
-    'email'    => '',
-    'contact'  => '',
-    'address'  => '',
-    'username' => '',
-];
+$formData = empty_user_profile_data();
 
 // Create a CSRF token once per session. random_bytes() is suitable for
 // security tokens because it uses a cryptographically secure source.
@@ -84,13 +54,7 @@ if (!empty($_SESSION['register_success'])) {
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Trim surrounding whitespace from normal text fields. Passwords are
     // not trimmed because spaces may be intentional characters.
-    $formData['fname']    = trim((string) ($_POST['fname'] ?? ''));
-    $formData['mname']    = trim((string) ($_POST['mname'] ?? ''));
-    $formData['lname']    = trim((string) ($_POST['lname'] ?? ''));
-    $formData['email']    = trim((string) ($_POST['email'] ?? ''));
-    $formData['contact']  = trim((string) ($_POST['contact'] ?? ''));
-    $formData['address']  = trim((string) ($_POST['address'] ?? ''));
-    $formData['username'] = trim((string) ($_POST['username'] ?? ''));
+    $formData = user_profile_data_from_input($_POST);
 
     $password = (string) ($_POST['password'] ?? '');
     $confirmPassword = (string) ($_POST['confirm_password'] ?? '');
@@ -103,51 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors[] = 'Security validation failed. Please refresh the page and try again.';
     }
 
-    // Required-field checks are explicit so a disabled browser or crafted
-    // request cannot bypass them.
-    if ($formData['fname'] === '') {
-        $errors[] = 'First name is required.';
-    } elseif (text_length($formData['fname']) > 100) {
-        $errors[] = 'First name must not exceed 100 characters.';
-    }
-
-    if ($formData['mname'] !== '' && text_length($formData['mname']) > 100) {
-        $errors[] = 'Middle name must not exceed 100 characters.';
-    }
-
-    if ($formData['lname'] === '') {
-        $errors[] = 'Last name is required.';
-    } elseif (text_length($formData['lname']) > 100) {
-        $errors[] = 'Last name must not exceed 100 characters.';
-    }
-
-    if ($formData['email'] === '') {
-        $errors[] = 'Email address is required.';
-    } elseif (text_length($formData['email']) > 150) {
-        $errors[] = 'Email address must not exceed 150 characters.';
-    } elseif (!filter_var($formData['email'], FILTER_VALIDATE_EMAIL)) {
-        $errors[] = 'Please enter a valid email address.';
-    }
-
-    if ($formData['contact'] === '') {
-        $errors[] = 'Contact number is required.';
-    } elseif (text_length($formData['contact']) > 20) {
-        $errors[] = 'Contact number must not exceed 20 characters.';
-    } elseif (!preg_match('/^[0-9+\-\s().]{7,20}$/', $formData['contact'])) {
-        $errors[] = 'Contact number may contain only numbers, spaces, +, -, parentheses, and periods.';
-    }
-
-    if ($formData['address'] === '') {
-        $errors[] = 'Address is required.';
-    } elseif (text_length($formData['address']) > 255) {
-        $errors[] = 'Address must not exceed 255 characters.';
-    }
-
-    if ($formData['username'] === '') {
-        $errors[] = 'Username is required.';
-    } elseif (!preg_match('/^[A-Za-z0-9_.-]{3,50}$/', $formData['username'])) {
-        $errors[] = 'Username must be 3-50 characters and may contain letters, numbers, underscores, periods, or hyphens.';
-    }
+    $errors = array_merge($errors, validate_user_profile_data($formData));
 
     if ($password === '') {
         $errors[] = 'Password is required.';
@@ -168,26 +88,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Check username and email together using a prepared statement.
             // The database also has UNIQUE indexes; this pre-check gives a
             // friendly message, while the insert catch below handles races.
-            $checkStmt = $pdo->prepare(
-                'SELECT username, email
-                 FROM tbl_users
-                 WHERE username = :username OR email = :email'
-            );
-            $checkStmt->execute([
-                ':username' => $formData['username'],
-                ':email'    => $formData['email'],
-            ]);
+            $conflicts = find_user_identity_conflicts($pdo, $formData['username'], $formData['email']);
 
-            $existingUsers = $checkStmt->fetchAll();
+            if ($conflicts['username']) {
+                $errors[] = 'Username is already taken.';
+            }
 
-            foreach ($existingUsers as $existingUser) {
-                if (isset($existingUser['username']) && strcasecmp($existingUser['username'], $formData['username']) === 0) {
-                    $errors[] = 'Username is already taken.';
-                }
-
-                if (isset($existingUser['email']) && strcasecmp($existingUser['email'], $formData['email']) === 0) {
-                    $errors[] = 'Email address is already registered.';
-                }
+            if ($conflicts['email']) {
+                $errors[] = 'Email address is already registered.';
             }
 
             if (empty($errors)) {

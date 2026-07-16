@@ -4,8 +4,8 @@
  * File     : pages/auth/login.php
  * Project  : CERTREEFY - Tree Cutting Permit & Environmental
  *            Management System (CENRO Sta. Cruz, Laguna)
- * Purpose  : Secure login page for superadmin, community, and
- *            greenhouse users.
+ * Purpose  : Secure login page for superadmin, RPS, community, and
+ *            EMS users.
  *
  * Security notes:
  * - Uses the shared hardened session and PDO connection from config.php.
@@ -18,49 +18,25 @@
  *   so strangers cannot enumerate account status without valid credentials.
  * - Uses generic invalid-credential messages for unknown users or wrong
  *   passwords to avoid revealing which part failed.
+ * - Throttles repeated failures per identifier and per IP (both sliding
+ *   windows) and records every attempt for a failed-login audit trail.
  * - Logs database errors server-side only.
  * ============================================================
  */
 
 require_once __DIR__ . '/../../config/config.php';
-
-// ------------------------------------------------------------
-// Helper functions
-// ------------------------------------------------------------
-
-/**
- * Escape output before rendering it into HTML.
- * This prevents submitted values or messages from becoming executable HTML.
- */
-function e(string $value): string
-{
-    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
-}
-
-/**
- * Redirect an authenticated user to the dashboard assigned to their role.
- * The role comes from tbl_users, not from user-controlled request data.
- */
-function redirect_by_role(string $role): bool
-{
-    $routes = [
-        'superadmin' => '../cenro/dashboard.php',
-        'community'  => '../community/dashboard.php',
-        'greenhouse' => '../greenhouse/dashboard.php',
-    ];
-
-    if (isset($routes[$role])) {
-        header('Location: ' . $routes[$role]);
-        exit;
-    }
-
-    return false;
-}
+require_once __DIR__ . '/../../includes/audit.php';
+require_once __DIR__ . '/../../includes/auth.php';
+require_once __DIR__ . '/../../includes/view.php';
 
 // If an authenticated user returns to login.php, send them to the correct
 // dashboard instead of showing the login form again.
 if (!empty($_SESSION['id']) && !empty($_SESSION['role'])) {
-    redirect_by_role((string) $_SESSION['role']);
+    if (!redirect_by_role((string) $_SESSION['role'])) {
+        error_log('[CERTREEFY LOGIN ERROR] Unknown role in existing session.');
+        clear_authenticated_user();
+        session_regenerate_id(true);
+    }
 }
 
 // ------------------------------------------------------------
@@ -69,6 +45,15 @@ if (!empty($_SESSION['id']) && !empty($_SESSION['role'])) {
 
 $errors = [];
 $loginIdentifier = '';
+
+// A session-timeout redirect carries a fixed reason code (never raw user
+// input) so the login page can explain why the user was signed out.
+$sessionExpiredMessages = [
+    'idle' => 'You were signed out after ' . (int) CERTREEFY_SESSION_IDLE_TIMEOUT_MINUTES . ' minutes of inactivity. Please sign in again.',
+    'absolute' => 'Your session reached its maximum duration and was signed out. Please sign in again.',
+];
+$sessionExpiredReason = (string) ($_GET['expired'] ?? '');
+$sessionExpiredMessage = $sessionExpiredMessages[$sessionExpiredReason] ?? null;
 
 // Login is a state-changing request because it creates an authenticated
 // session, so a CSRF token is used even though the form looks simple.
@@ -104,61 +89,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if (empty($errors)) {
-        try {
-            $stmt = $pdo->prepare(
-                'SELECT id, fname, lname, username, email, password, role, status
-                 FROM tbl_users
-                 WHERE username = :username_login OR email = :email_login
-                 LIMIT 1'
-            );
-            $stmt->execute([
-                ':username_login' => $loginIdentifier,
-                ':email_login'    => $loginIdentifier,
-            ]);
+        $normalizedIdentifier = login_attempt_normalize_identifier($loginIdentifier);
+        $requestIpAddress = audit_request_ip_address();
 
-            $user = $stmt->fetch();
+        if (login_attempt_identifier_is_throttled($pdo, $normalizedIdentifier)
+            || login_attempt_ip_is_throttled($pdo, $requestIpAddress)) {
+            $errors[] = 'Too many failed login attempts. Please wait a few minutes and try again.';
+        } else {
+            try {
+                $stmt = $pdo->prepare(
+                    'SELECT id, fname, lname, username, email, password, role, status
+                     FROM tbl_users
+                     WHERE username = :username_login OR email = :email_login
+                     LIMIT 1'
+                );
+                $stmt->execute([
+                    ':username_login' => $loginIdentifier,
+                    ':email_login'    => $loginIdentifier,
+                ]);
 
-            if (!$user || !password_verify($password, (string) $user['password'])) {
-                // Keep this intentionally generic to avoid confirming whether
-                // a username/email exists in the system.
-                $errors[] = 'Invalid username/email or password.';
-            } elseif ($user['status'] === 'pending') {
-                $errors[] = 'Your account is still pending approval by CENRO.';
-            } elseif ($user['status'] === 'disabled') {
-                $errors[] = 'Your account has been disabled. Please contact CENRO for assistance.';
-            } elseif ($user['status'] !== 'active') {
-                // Defensive fallback in case the database contains an
-                // unexpected status outside the documented ENUM values.
-                $errors[] = 'Your account cannot sign in at this time. Please contact CENRO for assistance.';
-            } else {
-                // Rotate the session ID only after valid credentials and an
-                // active status are confirmed, protecting the authenticated
-                // session from fixation.
-                session_regenerate_id(true);
+                $user = $stmt->fetch();
 
-                $_SESSION['id'] = (int) $user['id'];
-                $_SESSION['username'] = (string) $user['username'];
-                $_SESSION['name'] = trim((string) $user['fname'] . ' ' . (string) $user['lname']);
-                $_SESSION['role'] = (string) $user['role'];
+                if (!$user || !password_verify($password, (string) $user['password'])) {
+                    record_login_attempt($pdo, $normalizedIdentifier, $user ? (int) $user['id'] : null, false);
+                    // Keep this intentionally generic to avoid confirming whether
+                    // a username/email exists in the system.
+                    $errors[] = 'Invalid username/email or password.';
+                } elseif (($statusError = account_status_error((string) $user['status'])) !== null) {
+                    record_login_attempt($pdo, $normalizedIdentifier, (int) $user['id'], false);
+                    $errors[] = $statusError;
+                } else {
+                    $dashboardPath = dashboard_path_for_role((string) $user['role']);
 
-                // A successful login should not leave a reusable login token
-                // sitting in the old form state.
-                unset($_SESSION['csrf_login_token']);
+                    if ($dashboardPath === null) {
+                        error_log('[CERTREEFY LOGIN ERROR] Unknown role for user ID ' . (int) $user['id']);
+                        $errors[] = 'Unable to determine your dashboard. Please contact CENRO for assistance.';
+                    } else {
+                        record_audit_event(
+                            $pdo,
+                            (int) $user['id'],
+                            'authentication',
+                            'login',
+                            'user',
+                            (int) $user['id'],
+                            'Authenticated user login.',
+                            ['role' => (string) $user['role']]
+                        );
+                        record_login_attempt($pdo, $normalizedIdentifier, (int) $user['id'], true);
 
-                if (redirect_by_role((string) $user['role'])) {
-                    exit;
+                        // Rotate the session ID only after valid credentials and
+                        // active status are confirmed and the login is audited.
+                        session_regenerate_id(true);
+
+                        $_SESSION['id'] = (int) $user['id'];
+                        $_SESSION['username'] = (string) $user['username'];
+                        $_SESSION['name'] = trim((string) $user['fname'] . ' ' . (string) $user['lname']);
+                        $_SESSION['role'] = (string) $user['role'];
+                        $_SESSION['login_at'] = time();
+                        $_SESSION['last_activity_at'] = time();
+
+                        // A successful login should not leave a reusable token.
+                        unset($_SESSION['csrf_login_token']);
+
+                        header('Location: ' . $dashboardPath);
+                        exit;
+                    }
                 }
-
-                // If a malformed role ever reaches this point, do not grant
-                // dashboard access. The error is logged for administrators.
-                error_log('[CERTREEFY LOGIN ERROR] Unknown role for user ID ' . (int) $user['id']);
-                unset($_SESSION['id'], $_SESSION['username'], $_SESSION['name'], $_SESSION['role']);
+            } catch (PDOException $e) {
+                error_log('[CERTREEFY LOGIN ERROR] ' . $e->getMessage());
+                clear_authenticated_user();
+                session_regenerate_id(true);
                 $_SESSION['csrf_login_token'] = bin2hex(random_bytes(32));
-                $errors[] = 'Unable to determine your dashboard. Please contact CENRO for assistance.';
+                $errors[] = 'Unable to sign in at this time. Please try again later.';
             }
-        } catch (PDOException $e) {
-            error_log('[CERTREEFY LOGIN ERROR] ' . $e->getMessage());
-            $errors[] = 'Unable to sign in at this time. Please try again later.';
         }
     }
 }
@@ -293,7 +296,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                                 <div class="mt-4 pt-4 border-top border-white border-opacity-25">
                                     <p class="small mb-1 opacity-75">Authorized roles</p>
-                                    <p class="fw-semibold mb-0">CENRO Admin, Community, Greenhouse</p>
+                                    <p class="fw-semibold mb-0">CENRO Superadmin, RPS, Community, EMS</p>
                                 </div>
                             </div>
 
@@ -302,6 +305,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <p class="section-label mb-2">Secure access</p>
                                     <h2 class="h4 fw-bold mb-2">Login to your account</h2>
                                     <p class="text-secondary mb-4">Use your registered username or email address.</p>
+
+                                    <?php if ($sessionExpiredMessage !== null && empty($errors)): ?>
+                                        <div class="alert alert-warning" role="alert"><?php echo e($sessionExpiredMessage); ?></div>
+                                    <?php endif; ?>
 
                                     <?php if (!empty($errors)): ?>
                                         <div class="alert alert-danger" role="alert">
