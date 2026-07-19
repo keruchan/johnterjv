@@ -11,6 +11,10 @@ function audit_event_categories(): array
         'permit',
         'approval',
         'verification',
+        'seedling',
+        'illegal_logging',
+        'area_management',
+        'advisory',
     ];
 }
 
@@ -113,6 +117,10 @@ function audit_trail_category_labels(): array
         'permit' => 'Permit',
         'approval' => 'Approval',
         'verification' => 'Verification',
+        'seedling' => 'Seedling',
+        'illegal_logging' => 'Illegal Logging',
+        'area_management' => 'Area Management',
+        'advisory' => 'Advisory',
     ];
 }
 
@@ -124,6 +132,10 @@ function audit_trail_category_badge(string $category): string
         'permit' => 'text-bg-info',
         'approval' => 'text-bg-success',
         'verification' => 'text-bg-warning',
+        'seedling' => 'text-bg-dark',
+        'illegal_logging' => 'text-bg-danger',
+        'area_management' => 'text-bg-info',
+        'advisory' => 'text-bg-secondary',
         default => 'text-bg-light border',
     };
 }

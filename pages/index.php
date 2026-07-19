@@ -1,3 +1,59 @@
+<?php
+/**
+ * Public landing page for CERTREEFY. Serves anonymous visitors and surfaces
+ * published, public-flagged announcements in a carousel (managed from the
+ * CENRO Announcements page). Also reachable by already-authenticated users
+ * (via the sidebar "Home" link or the CERTREEFY logo), so the navbar adapts
+ * to show "Go to Dashboard"/"Logout" instead of "Login"/"Register" rather
+ * than asking a signed-in visitor to log in again.
+ */
+require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/advisory.php';
+require_once __DIR__ . '/../includes/area_management.php';
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/view.php';
+
+$announcements = [];
+try {
+    $announcements = advisory_public_list($pdo, 8);
+} catch (Throwable $e) {
+    error_log('[CERTREEFY LANDING ERROR] ' . $e->getMessage());
+    $announcements = [];
+}
+
+// Site boundary zones drawn in CENRO's Area Management page, shown on the
+// public contact map in place of a generic pinned address.
+$zoneMapFeatures = [];
+try {
+    $zoneMapFeatures = area_zone_map_features($pdo);
+} catch (Throwable $e) {
+    error_log('[CERTREEFY LANDING ERROR] ' . $e->getMessage());
+    $zoneMapFeatures = [];
+}
+
+// Recognize an already-authenticated visitor without requiring one (this page
+// stays public). dashboard_path_for_role() returns paths meant for callers one
+// directory below pages/ (e.g. "../cenro/dashboard.php"); this page lives
+// directly under pages/, so the leading "../" is stripped.
+$viewerDisplayName = '';
+$viewerDashboardPath = null;
+if (!empty($_SESSION['id']) && !empty($_SESSION['role'])) {
+    $roleDashboardPath = dashboard_path_for_role((string) $_SESSION['role']);
+    if ($roleDashboardPath !== null) {
+        $viewerDashboardPath = substr($roleDashboardPath, 3);
+        $viewerDisplayName = trim((string) ($_SESSION['name'] ?? '')) !== ''
+            ? (string) $_SESSION['name']
+            : 'your account';
+        if (empty($_SESSION['csrf_logout_token'])) {
+            $_SESSION['csrf_logout_token'] = bin2hex(random_bytes(32));
+        }
+    }
+}
+$isAuthenticated = $viewerDashboardPath !== null;
+// Every "start using the system" call-to-action should send a signed-in
+// visitor straight back to their dashboard rather than the login form.
+$primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -12,10 +68,10 @@
   <meta property="og:type" content="website">
   <meta name="robots" content="index, follow">
 
-  <!-- Google Fonts: Poppins -->
+  <!-- Google Fonts: Fraunces (display) + Inter (body) to match the CERTREEFY dashboard -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <!-- Bootstrap 5 CSS -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -23,31 +79,37 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
   <!-- AOS (Animate on Scroll) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css">
+  <!-- Leaflet (site boundary map) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
   <style>
     :root{
-      --forest-deep:#2E7D32;
-      --forest-fresh:#4CAF50;
-      --leaf-light:#A5D6A7;
-      --mist:#F5F5F5;
-      --charcoal:#263238;
-      --forest-deep-rgb:46,125,50;
+      --forest-deep:#2d6a4f;   /* fern-600 — primary action green (dashboard palette) */
+      --forest-fresh:#3a7d5d;  /* fern-500 */
+      --leaf-light:#dcebde;    /* soft sprout tint */
+      --mist:#f6f4ec;          /* parchment */
+      --charcoal:#202b22;      /* ink-900 */
+      --canopy:#1b4332;        /* canopy-900 — deepest green */
+      --line:#e2ddca;
+      --forest-deep-rgb:45,106,79;
     }
 
     *{scroll-behavior:smooth;}
 
     body{
-      font-family:'Poppins',sans-serif;
+      font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
       color:var(--charcoal);
       background-color:#ffffff;
       font-weight:400;
     }
 
-    h1,h2,h3,h4,h5,.brand-font{
-      font-family:'Poppins',sans-serif;
-      font-weight:700;
+    h1,h2,h3,h4,h5,.brand-font,.section-title,.hero-section h1{
+      font-family:'Fraunces',Georgia,serif;
+      font-weight:600;
       color:var(--charcoal);
+      letter-spacing:0;
     }
+    .navbar-certreefy .navbar-brand,footer .navbar-brand{font-family:'Fraunces',Georgia,serif;}
 
     .eyebrow{
       text-transform:uppercase;
@@ -118,7 +180,9 @@
 
     /* ===== HERO ===== */
     .hero-section{
-      background:linear-gradient(180deg,#F5FBF5 0%, var(--mist) 100%);
+      background:
+        radial-gradient(900px 400px at 85% -10%, rgba(45,106,79,.10), transparent 60%),
+        linear-gradient(180deg,#eef4ef 0%, var(--mist) 100%);
       padding-top:5.5rem;
       padding-bottom:3rem;
       overflow:hidden;
@@ -253,7 +317,9 @@
 
     /* ===== STATS ===== */
     .stats-band{
-      background:linear-gradient(120deg,var(--forest-deep),#1B5E20);
+      background:
+        radial-gradient(120% 120% at 0% 0%, rgba(58,125,93,.35), transparent 55%),
+        linear-gradient(120deg,var(--canopy),#123027);
       color:#fff;
     }
     .stat-figure{
@@ -309,6 +375,11 @@
       min-height:340px;
       border:1px solid rgba(38,50,56,.08);
     }
+    .map-placeholder .site-boundary-map{
+      width:100%;
+      height:340px;
+      z-index:0;
+    }
 
     /* ===== FOOTER ===== */
     footer.site-footer{
@@ -331,6 +402,69 @@
       color:#fff;
     }
     .social-icon:hover{background:var(--forest-fresh);}
+
+    /* ===== ANNOUNCEMENTS CAROUSEL ===== */
+    .announce-band{background:var(--mist);}
+    .announce-carousel{
+      border-radius:20px;
+      overflow:hidden;
+      border:1px solid var(--line);
+      box-shadow:0 26px 60px -34px rgba(18,36,29,.5);
+      background:#fff;
+    }
+    .announce-slide{
+      min-height:360px;
+      display:grid;
+      grid-template-columns:1.05fr .95fr;
+    }
+    .announce-slide.no-image{grid-template-columns:1fr;}
+    .announce-copy{
+      padding:2.8rem 3rem;
+      display:flex;flex-direction:column;justify-content:center;
+      background:
+        radial-gradient(120% 90% at 0% 0%, rgba(45,106,79,.10), transparent 55%),
+        linear-gradient(160deg,#ffffff,#f3f7f2);
+    }
+    /* No image: center the advisory instead of leaving it pinned to the
+       left edge of the full-width slide. */
+    .announce-slide.no-image .announce-copy{
+      align-items:center;
+      text-align:center;
+    }
+    .announce-slide.no-image .announce-copy > *{
+      max-width:640px;
+    }
+    .announce-slide.no-image .announce-pill,
+    .announce-slide.no-image .announce-schedule{
+      align-self:center;
+    }
+    .announce-media{position:relative;background:#0f231b;}
+    .announce-media img{width:100%;height:100%;object-fit:cover;display:block;min-height:360px;}
+    .announce-pill{
+      align-self:flex-start;display:inline-flex;align-items:center;gap:.4rem;
+      background:var(--canopy);color:#fff;
+      font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+      padding:.4rem .85rem;border-radius:999px;margin-bottom:1rem;
+    }
+    .announce-schedule{
+      align-self:flex-start;display:inline-flex;align-items:center;gap:.5rem;
+      background:#f6ead2;color:#8a5a12;font-weight:600;
+      padding:.5rem .85rem;border-radius:10px;font-size:.92rem;margin-bottom:1.1rem;
+    }
+    .announce-title{font-family:'Fraunces',Georgia,serif;font-size:1.65rem;font-weight:600;line-height:1.2;margin-bottom:.75rem;}
+    .announce-body{color:#4a5a50;font-size:1rem;white-space:pre-line;margin-bottom:0;}
+    .announce-date{color:var(--forest-deep);font-weight:600;font-size:.85rem;margin-top:1.3rem;}
+    .announce-carousel .carousel-control-prev-icon,.announce-carousel .carousel-control-next-icon{
+      background-color:rgba(18,36,29,.55);border-radius:50%;padding:1.1rem;background-size:45%;
+    }
+    .announce-carousel .carousel-indicators [data-bs-target]{background-color:var(--canopy);}
+    @media (max-width:768px){
+      .announce-slide,.announce-slide.no-image{grid-template-columns:1fr;}
+      .announce-media,.announce-media img{min-height:210px;}
+      .announce-copy{padding:1.9rem 1.6rem;}
+      .announce-title{font-size:1.4rem;}
+    }
+    .btn-forest-primary,.btn-forest-outline{box-shadow:0 10px 24px -16px rgba(45,106,79,.9);}
 
     @media (prefers-reduced-motion: reduce){
       *{animation:none !important; transition:none !important;}
@@ -356,17 +490,32 @@
         <div class="collapse navbar-collapse" id="mainNav">
           <ul class="navbar-nav ms-auto mb-2 mb-lg-0 align-items-lg-center">
             <li class="nav-item"><a class="nav-link active" href="#home">Home</a></li>
+            <?php if ($announcements !== []): ?>
+            <li class="nav-item"><a class="nav-link" href="#announcements">Announcements</a></li>
+            <?php endif; ?>
             <li class="nav-item"><a class="nav-link" href="#about">About</a></li>
             <li class="nav-item"><a class="nav-link" href="#services">Services</a></li>
             <li class="nav-item"><a class="nav-link" href="#process">Process</a></li>
             <li class="nav-item"><a class="nav-link" href="#faq">FAQ</a></li>
             <li class="nav-item"><a class="nav-link" href="#contact">Contact</a></li>
+            <?php if ($isAuthenticated): ?>
+            <li class="nav-item ms-lg-3 mt-2 mt-lg-0">
+              <a href="<?php echo e($viewerDashboardPath); ?>" class="btn btn-login"><i class="bi bi-speedometer2 me-1"></i>Dashboard</a>
+            </li>
+            <li class="nav-item ms-lg-2 mt-2 mt-lg-0">
+              <form method="post" action="auth/logout.php" class="d-inline">
+                <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_logout_token']); ?>">
+                <button type="submit" class="btn btn-register"><i class="bi bi-box-arrow-right me-1"></i>Logout</button>
+              </form>
+            </li>
+            <?php else: ?>
             <li class="nav-item ms-lg-3 mt-2 mt-lg-0">
               <a href="auth/login.php" class="btn btn-login"><i class="bi bi-box-arrow-in-right me-1"></i>Login</a>
             </li>
             <li class="nav-item ms-lg-2 mt-2 mt-lg-0">
               <a href="auth/register.php" class="btn btn-register"><i class="bi bi-person-plus me-1"></i>Register</a>
             </li>
+            <?php endif; ?>
           </ul>
         </div>
       </div>
@@ -381,16 +530,16 @@
       <div class="container">
         <div class="row align-items-center gy-5">
           <div class="col-lg-6" data-aos="fade-up">
-            <span class="eyebrow"><i class="bi bi-patch-check-fill me-1"></i>Official CENRO Sta. Cruz, Laguna Platform</span>
+            <span class="eyebrow"><i class="bi bi-patch-check-fill me-1"></i>Official CENRO Sta. Cruz Platform &middot; Districts 3 &amp; 4, Laguna</span>
             <h1 class="mt-3 mb-3">Growing a Greener Laguna, One Digital Permit at a Time.</h1>
             <p class="lead-text mb-4">
-              CERTREEFY lets residents, businesses, and communities of Sta. Cruz, Laguna apply for tree
-              cutting permits, report illegal logging, request seedlings, and track environmental
+              CERTREEFY lets residents, businesses, and communities across Districts 3 &amp; 4 of Laguna apply
+              for tree cutting permits, report illegal logging, request seedlings, and track environmental
               applications online — fast, transparent, and fully accountable to DENR standards.
             </p>
             <div class="d-flex flex-wrap gap-3">
-              <a href="auth/login.php" class="btn btn-forest-primary"><i class="bi bi-file-earmark-text me-2"></i>Request Permit</a>
-              <a href="auth/login.php" class="btn btn-forest-outline"><i class="bi bi-shield-exclamation me-2"></i>Report Illegal Logging</a>
+              <a href="<?php echo e($primaryCtaHref); ?>" class="btn btn-forest-primary"><i class="bi bi-file-earmark-text me-2"></i><?php echo $isAuthenticated ? 'Go to Dashboard' : 'Request Permit'; ?></a>
+              <a href="<?php echo e($primaryCtaHref); ?>" class="btn btn-forest-outline"><i class="bi bi-shield-exclamation me-2"></i>Report Illegal Logging</a>
             </div>
           </div>
           <div class="col-lg-6 position-relative" data-aos="fade-left" data-aos-delay="100">
@@ -437,6 +586,70 @@
     </section>
 
     <!-- =========================================================
+         2b. ANNOUNCEMENTS CAROUSEL (published public advisories)
+    ========================================================== -->
+    <?php if ($announcements !== []): ?>
+    <section id="announcements" class="section-pad announce-band">
+      <div class="container">
+        <div class="text-center mb-4" data-aos="fade-up">
+          <span class="eyebrow"><i class="bi bi-megaphone-fill me-1"></i>Public Advisories</span>
+          <h2 class="section-title mt-2">Announcements &amp; Cutting Schedules</h2>
+          <p class="section-sub mx-auto mt-2">Official notices from CENRO Sta. Cruz for Districts 3 &amp; 4 of Laguna — including scheduled tree-cutting operations. We appreciate your understanding.</p>
+        </div>
+
+        <div id="announceCarousel" class="carousel slide announce-carousel" data-bs-ride="carousel" data-bs-interval="7000" data-aos="fade-up">
+          <?php if (count($announcements) > 1): ?>
+          <div class="carousel-indicators">
+            <?php foreach ($announcements as $index => $announcement): ?>
+              <button type="button" data-bs-target="#announceCarousel" data-bs-slide-to="<?php echo (int) $index; ?>" <?php echo $index === 0 ? 'class="active" aria-current="true"' : ''; ?> aria-label="Slide <?php echo (int) $index + 1; ?>"></button>
+            <?php endforeach; ?>
+          </div>
+          <?php endif; ?>
+
+          <div class="carousel-inner">
+            <?php foreach ($announcements as $index => $announcement): ?>
+              <?php
+              $imageUrl = advisory_image_url($announcement);
+              $eventAt = $announcement['event_at'] !== null ? strtotime((string) $announcement['event_at']) : null;
+              $publishedAt = $announcement['published_at'] !== null ? strtotime((string) $announcement['published_at']) : null;
+              ?>
+              <div class="carousel-item <?php echo $index === 0 ? 'active' : ''; ?>">
+                <div class="announce-slide <?php echo $imageUrl === null ? 'no-image' : ''; ?>">
+                  <div class="announce-copy">
+                    <span class="announce-pill"><i class="bi bi-tree-fill"></i> CENRO Advisory</span>
+                    <?php if ($eventAt !== null): ?>
+                      <span class="announce-schedule"><i class="bi bi-calendar-event"></i> Schedule: <?php echo e(date('F j, Y \a\t g:i A', $eventAt)); ?></span>
+                    <?php endif; ?>
+                    <h3 class="announce-title"><?php echo e((string) $announcement['title']); ?></h3>
+                    <p class="announce-body"><?php echo e((string) $announcement['body']); ?></p>
+                    <?php if ($publishedAt !== null): ?>
+                      <div class="announce-date"><i class="bi bi-clock-history me-1"></i>Posted <?php echo e(date('F j, Y', $publishedAt)); ?></div>
+                    <?php endif; ?>
+                  </div>
+                  <?php if ($imageUrl !== null): ?>
+                    <div class="announce-media">
+                      <img src="../<?php echo e($imageUrl); ?>" alt="<?php echo e((string) ($announcement['image_original_name'] ?? $announcement['title'])); ?>">
+                    </div>
+                  <?php endif; ?>
+                </div>
+              </div>
+            <?php endforeach; ?>
+          </div>
+
+          <?php if (count($announcements) > 1): ?>
+          <button class="carousel-control-prev" type="button" data-bs-target="#announceCarousel" data-bs-slide="prev">
+            <span class="carousel-control-prev-icon" aria-hidden="true"></span><span class="visually-hidden">Previous</span>
+          </button>
+          <button class="carousel-control-next" type="button" data-bs-target="#announceCarousel" data-bs-slide="next">
+            <span class="carousel-control-next-icon" aria-hidden="true"></span><span class="visually-hidden">Next</span>
+          </button>
+          <?php endif; ?>
+        </div>
+      </div>
+    </section>
+    <?php endif; ?>
+
+    <!-- =========================================================
          3. ABOUT SECTION
     ========================================================== -->
     <section id="about" class="section-pad">
@@ -447,12 +660,12 @@
             <h2 class="section-title mt-2 mb-3">A digital bridge between the community and CENRO Sta. Cruz</h2>
             <p class="section-sub mb-4">
               CERTREEFY (CENRO Electronic Registry for Tree Regulation, Environmental Enforcement,
-              and Facilitation System) is the
-              official online system of the Community Environment and Natural Resources Office (CENRO) in
-              Sta. Cruz, Laguna, under the Department of Environment and Natural Resources (DENR). It
-              streamlines tree cutting permit applications, illegal logging reports, seedling requests,
-              and area verification — replacing paper-based queues with a transparent digital process that
-              residents and field officers can both track in real time.
+              and Facilitation System) is the official online system of the Community Environment and
+              Natural Resources Office (CENRO) Sta. Cruz, serving Districts 3 &amp; 4 of Laguna under the
+              Department of Environment and Natural Resources (DENR). It streamlines tree cutting permit
+              applications, illegal logging reports, seedling requests, and area verification — replacing
+              paper-based queues with a transparent digital process that residents and field officers can
+              both track in real time.
             </p>
             <div class="row row-cols-2 g-3">
               <div class="col">
@@ -476,7 +689,7 @@
               <div class="col-6">
                 <div class="p-4 rounded-4 h-100" style="background:var(--leaf-light);">
                   <i class="bi bi-tree fs-2 text-success"></i>
-                  <p class="fw-semibold mt-2 mb-0">Sustainable forestry practices across Sta. Cruz</p>
+                  <p class="fw-semibold mt-2 mb-0">Sustainable forestry practices across Districts 3 &amp; 4</p>
                 </div>
               </div>
               <div class="col-6 mt-5">
@@ -513,7 +726,7 @@
           <h2 class="section-title mt-2">Our Core Services</h2>
           <p class="section-sub mx-auto mt-2">
             Four essential environmental services now available online for residents, tree farm
-            operators, and community organizations in Sta. Cruz, Laguna.
+            operators, and community organizations across Districts 3 &amp; 4 of Laguna.
           </p>
         </div>
         <div class="row g-4">
@@ -522,7 +735,7 @@
               <div class="service-icon"><i class="bi bi-file-earmark-text"></i></div>
               <h3 class="h5">Tree Cutting Permit</h3>
               <p class="text-muted mb-3">Apply online to legally cut, prune, or remove trees on private or titled land, complete with document upload and status tracking.</p>
-              <a href="auth/login.php" class="fw-semibold" style="color:var(--forest-deep);">Apply now <i class="bi bi-arrow-right"></i></a>
+              <a href="<?php echo e($primaryCtaHref); ?>" class="fw-semibold" style="color:var(--forest-deep);">Apply now <i class="bi bi-arrow-right"></i></a>
             </div>
           </div>
           <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="100">
@@ -530,7 +743,7 @@
               <div class="service-icon"><i class="bi bi-shield-exclamation"></i></div>
               <h3 class="h5">Illegal Logging Report</h3>
               <p class="text-muted mb-3">Submit geotagged photos and location details of suspected illegal cutting activities for rapid CENRO enforcement action.</p>
-              <a href="auth/login.php" class="fw-semibold" style="color:var(--forest-deep);">File a report <i class="bi bi-arrow-right"></i></a>
+              <a href="<?php echo e($primaryCtaHref); ?>" class="fw-semibold" style="color:var(--forest-deep);">File a report <i class="bi bi-arrow-right"></i></a>
             </div>
           </div>
           <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="200">
@@ -538,7 +751,7 @@
               <div class="service-icon"><i class="bi bi-flower1"></i></div>
               <h3 class="h5">Seedling Request</h3>
               <p class="text-muted mb-3">Request free native and fruit-bearing seedlings from CENRO nurseries for reforestation, greening, or backyard planting.</p>
-              <a href="auth/login.php" class="fw-semibold" style="color:var(--forest-deep);">Request seedlings <i class="bi bi-arrow-right"></i></a>
+              <a href="<?php echo e($primaryCtaHref); ?>" class="fw-semibold" style="color:var(--forest-deep);">Request seedlings <i class="bi bi-arrow-right"></i></a>
             </div>
           </div>
           <div class="col-md-6 col-lg-3" data-aos="fade-up" data-aos-delay="300">
@@ -546,7 +759,7 @@
               <div class="service-icon"><i class="bi bi-geo-alt"></i></div>
               <h3 class="h5">Area Verification</h3>
               <p class="text-muted mb-3">Schedule an official ground validation to confirm land classification, tree count, and site boundaries before permit issuance.</p>
-              <a href="auth/login.php" class="fw-semibold" style="color:var(--forest-deep);">Schedule visit <i class="bi bi-arrow-right"></i></a>
+              <a href="<?php echo e($primaryCtaHref); ?>" class="fw-semibold" style="color:var(--forest-deep);">Schedule visit <i class="bi bi-arrow-right"></i></a>
             </div>
           </div>
         </div>
@@ -696,8 +909,9 @@
                 <div id="faqOne" class="accordion-collapse collapse show" aria-labelledby="faqHead1" data-bs-parent="#faqAccordion">
                   <div class="accordion-body text-muted">
                     Any landowner, business, homeowners' association, or authorized representative with
-                    trees located within the jurisdiction of Sta. Cruz, Laguna may apply, provided they
-                    submit proof of land ownership or tenure and a valid reason for the requested cutting.
+                    trees located within CENRO Sta. Cruz's jurisdiction — covering Districts 3 &amp; 4 of
+                    Laguna — may apply, provided they submit proof of land ownership or tenure and a valid
+                    reason for the requested cutting.
                   </div>
                 </div>
               </div>
@@ -806,14 +1020,9 @@
             </div>
           </div>
           <div class="col-lg-7" data-aos="fade-left">
-            <!-- Map placeholder -->
+            <!-- Site boundary map (drawn zones from CENRO Area Management) -->
             <div class="map-placeholder h-100 d-flex align-items-center justify-content-center bg-white">
-              <iframe
-                title="CENRO Sta. Cruz Laguna Map Location"
-                src="https://www.google.com/maps?q=Sta.%20Cruz%2C%20Laguna%2C%20Philippines&output=embed"
-                width="100%" height="340" style="border:0;" loading="lazy"
-                referrerpolicy="no-referrer-when-downgrade">
-              </iframe>
+              <div id="siteBoundaryMap" class="site-boundary-map" role="img" aria-label="Map of the CENRO Sta. Cruz jurisdiction site boundary covering Districts 3 and 4 of Laguna"></div>
             </div>
           </div>
         </div>
@@ -849,8 +1058,12 @@
             <li class="mb-2"><a href="#services">Services</a></li>
             <li class="mb-2"><a href="#process">Process</a></li>
             <li class="mb-2"><a href="#faq">FAQ</a></li>
+            <?php if ($isAuthenticated): ?>
+            <li class="mb-2"><a href="<?php echo e($viewerDashboardPath); ?>">Dashboard</a></li>
+            <?php else: ?>
             <li class="mb-2"><a href="auth/login.php">Login</a></li>
             <li class="mb-2"><a href="auth/register.php">Register</a></li>
+            <?php endif; ?>
           </ul>
         </div>
         <div class="col-6 col-lg-3">
@@ -882,12 +1095,26 @@
     </div>
   </footer>
 
+  <script type="application/json" id="siteBoundaryMapData"><?php echo json_encode($zoneMapFeatures, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
+
   <!-- Bootstrap Bundle JS (includes Popper, needed for navbar/accordion) -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <!-- AOS JS -->
   <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
+  <!-- Leaflet + CERTREEFY geomapping helpers (site boundary map) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="../js/geo-map.js"></script>
   <script>
     AOS.init({ duration: 700, once: true, easing: 'ease-out-cubic' });
+
+    if (window.CertreefyGeo) {
+      // Default view stays zoomed out to Districts 3 & 4 as a whole (the
+      // CertreefyGeo default center/zoom) rather than auto-fitting to the
+      // drawn boundary — the boundary is still overlaid and stays visible,
+      // zoomable, and clickable within that wider view.
+      var boundaryMap = CertreefyGeo.baseMap('siteBoundaryMap', { scrollWheelZoom: false });
+      CertreefyGeo.zonesOverlay(boundaryMap, CertreefyGeo.readJson('siteBoundaryMapData', []));
+    }
   </script>
 </body>
 </html>

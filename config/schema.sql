@@ -431,12 +431,36 @@ CREATE TABLE IF NOT EXISTS `tbl_permit_donation_verification_items` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   `donation_verification_id` BIGINT UNSIGNED NOT NULL,
   `seedling_type` VARCHAR(150) NOT NULL,
+  `inventory_id` BIGINT UNSIGNED DEFAULT NULL,
   `quantity_received` INT UNSIGNED NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uq_permit_donation_item_type` (`donation_verification_id`, `seedling_type`),
   KEY `idx_permit_donation_item_verification` (`donation_verification_id`),
-  CONSTRAINT `fk_permit_donation_item_verification` FOREIGN KEY (`donation_verification_id`) REFERENCES `tbl_permit_donation_verifications` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+  KEY `idx_permit_donation_item_inventory` (`inventory_id`),
+  CONSTRAINT `fk_permit_donation_item_verification` FOREIGN KEY (`donation_verification_id`) REFERENCES `tbl_permit_donation_verifications` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_permit_donation_item_inventory` FOREIGN KEY (`inventory_id`) REFERENCES `tbl_seedling_inventory` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Compatibility migration: links each donation receipt line item to the
+-- seedling inventory species it credits (added when permit donations were
+-- wired to automatically restock the seedling inventory on receipt).
+ALTER TABLE `tbl_permit_donation_verification_items`
+  ADD COLUMN IF NOT EXISTS `inventory_id` BIGINT UNSIGNED DEFAULT NULL AFTER `seedling_type`;
+ALTER TABLE `tbl_permit_donation_verification_items`
+  ADD KEY IF NOT EXISTS `idx_permit_donation_item_inventory` (`inventory_id`);
+SET @fk_exists = (
+  SELECT COUNT(*) FROM information_schema.TABLE_CONSTRAINTS
+  WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = 'tbl_permit_donation_verification_items'
+    AND CONSTRAINT_NAME = 'fk_permit_donation_item_inventory'
+);
+SET @add_fk_sql = IF(
+  @fk_exists = 0,
+  'ALTER TABLE `tbl_permit_donation_verification_items` ADD CONSTRAINT `fk_permit_donation_item_inventory` FOREIGN KEY (`inventory_id`) REFERENCES `tbl_seedling_inventory` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT',
+  'SELECT 1'
+);
+PREPARE add_fk_stmt FROM @add_fk_sql;
+EXECUTE add_fk_stmt;
+DEALLOCATE PREPARE add_fk_stmt;
 
 CREATE TABLE IF NOT EXISTS `tbl_permits` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -520,4 +544,326 @@ CREATE TABLE IF NOT EXISTS `tbl_permit_cutting_completion_evidence` (
   CONSTRAINT `fk_completion_evidence_application` FOREIGN KEY (`application_id`) REFERENCES `tbl_permit_applications` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_completion_evidence_completion` FOREIGN KEY (`completion_id`) REFERENCES `tbl_permit_cutting_completions` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
   CONSTRAINT `fk_completion_evidence_uploader` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Seedling inventory and public seedling-request program.
+-- Independent of the Tree Cutting Permit workflow: permit donations flow
+-- Community -> EMS, while these requests flow EMS -> Community.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `tbl_seedling_request_sequences` (
+  `sequence_year` SMALLINT UNSIGNED NOT NULL,
+  `last_number` INT UNSIGNED NOT NULL DEFAULT 0,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`sequence_year`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_seedling_inventory` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `common_name` VARCHAR(150) NOT NULL,
+  `scientific_name` VARCHAR(150) DEFAULT NULL,
+  `available_quantity` INT UNSIGNED NOT NULL DEFAULT 0,
+  `low_stock_threshold` INT UNSIGNED NOT NULL DEFAULT 0,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `notes` VARCHAR(500) DEFAULT NULL,
+  `created_by_user_id` INT UNSIGNED NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_seedling_species` (`common_name`),
+  KEY `idx_seedling_inventory_active` (`is_active`, `common_name`),
+  KEY `idx_seedling_inventory_creator` (`created_by_user_id`),
+  CONSTRAINT `fk_seedling_inventory_creator` FOREIGN KEY (`created_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_seedling_requests` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `request_reference` VARCHAR(20) DEFAULT NULL,
+  `submission_key` VARCHAR(64) NOT NULL,
+  `requester_user_id` INT UNSIGNED NOT NULL,
+  `requester_name` VARCHAR(255) NOT NULL,
+  `requester_contact` VARCHAR(20) DEFAULT NULL,
+  `planting_purpose` VARCHAR(500) NOT NULL,
+  `planting_location` VARCHAR(500) NOT NULL,
+  `preferred_pickup_date` DATE DEFAULT NULL,
+  `current_status` VARCHAR(50) NOT NULL DEFAULT 'submitted',
+  `reviewed_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `reviewed_at` TIMESTAMP NULL DEFAULT NULL,
+  `review_remarks` VARCHAR(1000) DEFAULT NULL,
+  `fulfilled_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `fulfilled_at` TIMESTAMP NULL DEFAULT NULL,
+  `claimed_by_name` VARCHAR(150) DEFAULT NULL,
+  `released_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `claimed_on` DATE DEFAULT NULL,
+  `claim_remarks` VARCHAR(1000) DEFAULT NULL,
+  `submitted_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_seedling_request_reference` (`request_reference`),
+  UNIQUE KEY `uq_seedling_requester_submission` (`requester_user_id`, `submission_key`),
+  KEY `idx_seedling_requests_status` (`current_status`, `submitted_at`),
+  KEY `idx_seedling_requests_requester` (`requester_user_id`, `current_status`),
+  KEY `idx_seedling_requests_reviewer` (`reviewed_by_user_id`),
+  KEY `idx_seedling_requests_fulfiller` (`fulfilled_by_user_id`),
+  KEY `idx_seedling_requests_releaser` (`released_by_user_id`),
+  CONSTRAINT `fk_seedling_request_requester` FOREIGN KEY (`requester_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_seedling_request_reviewer` FOREIGN KEY (`reviewed_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_seedling_request_fulfiller` FOREIGN KEY (`fulfilled_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_seedling_request_releaser` FOREIGN KEY (`released_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_seedling_request_items` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `request_id` BIGINT UNSIGNED NOT NULL,
+  `inventory_id` BIGINT UNSIGNED NOT NULL,
+  `common_name` VARCHAR(150) NOT NULL,
+  `quantity_requested` INT UNSIGNED NOT NULL,
+  `quantity_approved` INT UNSIGNED DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_seedling_request_item_species` (`request_id`, `inventory_id`),
+  KEY `idx_seedling_request_items_request` (`request_id`),
+  KEY `idx_seedling_request_items_inventory` (`inventory_id`),
+  CONSTRAINT `fk_seedling_request_item_request` FOREIGN KEY (`request_id`) REFERENCES `tbl_seedling_requests` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_seedling_request_item_inventory` FOREIGN KEY (`inventory_id`) REFERENCES `tbl_seedling_inventory` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_seedling_stock_movements` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `inventory_id` BIGINT UNSIGNED NOT NULL,
+  `request_id` BIGINT UNSIGNED DEFAULT NULL,
+  `movement_type` VARCHAR(30) NOT NULL,
+  `quantity_delta` INT NOT NULL,
+  `quantity_after` INT UNSIGNED NOT NULL,
+  `reason` VARCHAR(500) DEFAULT NULL,
+  `recorded_by_user_id` INT UNSIGNED NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_seedling_movements_inventory` (`inventory_id`, `created_at`),
+  KEY `idx_seedling_movements_type` (`movement_type`, `created_at`),
+  KEY `idx_seedling_movements_request` (`request_id`),
+  KEY `idx_seedling_movements_actor` (`recorded_by_user_id`),
+  CONSTRAINT `fk_seedling_movement_inventory` FOREIGN KEY (`inventory_id`) REFERENCES `tbl_seedling_inventory` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_seedling_movement_request` FOREIGN KEY (`request_id`) REFERENCES `tbl_seedling_requests` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_seedling_movement_actor` FOREIGN KEY (`recorded_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_seedling_request_status_history` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `request_id` BIGINT UNSIGNED NOT NULL,
+  `previous_status` VARCHAR(50) DEFAULT NULL,
+  `new_status` VARCHAR(50) NOT NULL,
+  `changed_by_user_id` INT UNSIGNED NOT NULL,
+  `remarks` VARCHAR(500) DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_seedling_history_request` (`request_id`, `created_at`),
+  KEY `idx_seedling_history_actor` (`changed_by_user_id`),
+  CONSTRAINT `fk_seedling_history_request` FOREIGN KEY (`request_id`) REFERENCES `tbl_seedling_requests` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_seedling_history_actor` FOREIGN KEY (`changed_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Illegal logging incident reports. Independent of the Tree Cutting Permit
+-- and seedling-request workflows: a Community user reports a suspected
+-- illegal-cutting incident, CENRO enforcement (active RPS or a specifically
+-- permitted Superadmin) dispatches a field verification, and records a
+-- resolution outcome.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `tbl_illegal_logging_report_sequences` (
+  `sequence_year` SMALLINT UNSIGNED NOT NULL,
+  `last_number` INT UNSIGNED NOT NULL DEFAULT 0,
+  `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`sequence_year`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_illegal_logging_reports` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `report_reference` VARCHAR(20) DEFAULT NULL,
+  `submission_key` VARCHAR(64) NOT NULL,
+  `reporter_user_id` INT UNSIGNED NOT NULL,
+  `reporter_name` VARCHAR(255) NOT NULL,
+  `reporter_contact` VARCHAR(20) DEFAULT NULL,
+  `incident_location` VARCHAR(500) NOT NULL,
+  `latitude` DECIMAL(10,7) DEFAULT NULL,
+  `longitude` DECIMAL(10,7) DEFAULT NULL,
+  `incident_description` TEXT NOT NULL,
+  `observed_on` DATE DEFAULT NULL,
+  `current_status` VARCHAR(50) NOT NULL DEFAULT 'submitted',
+  `assigned_to_user_id` INT UNSIGNED DEFAULT NULL,
+  `assigned_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `assigned_at` TIMESTAMP NULL DEFAULT NULL,
+  `field_verified_at` TIMESTAMP NULL DEFAULT NULL,
+  `field_findings` VARCHAR(2000) DEFAULT NULL,
+  `resolution_outcome` VARCHAR(50) DEFAULT NULL,
+  `resolution_notes` VARCHAR(2000) DEFAULT NULL,
+  `resolved_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `resolved_at` TIMESTAMP NULL DEFAULT NULL,
+  `submitted_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_illegal_logging_report_reference` (`report_reference`),
+  UNIQUE KEY `uq_illegal_logging_reporter_submission` (`reporter_user_id`, `submission_key`),
+  KEY `idx_illegal_logging_status` (`current_status`, `submitted_at`),
+  KEY `idx_illegal_logging_reporter` (`reporter_user_id`, `current_status`),
+  KEY `idx_illegal_logging_assignee` (`assigned_to_user_id`),
+  KEY `idx_illegal_logging_assigner` (`assigned_by_user_id`),
+  KEY `idx_illegal_logging_resolver` (`resolved_by_user_id`),
+  CONSTRAINT `fk_illegal_logging_reporter` FOREIGN KEY (`reporter_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_illegal_logging_assignee` FOREIGN KEY (`assigned_to_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_illegal_logging_assigner` FOREIGN KEY (`assigned_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_illegal_logging_resolver` FOREIGN KEY (`resolved_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_illegal_logging_report_photos` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `report_id` BIGINT UNSIGNED NOT NULL,
+  `storage_path` VARCHAR(500) NOT NULL,
+  `original_filename` VARCHAR(255) NOT NULL,
+  `mime_type` VARCHAR(100) NOT NULL,
+  `file_size_bytes` BIGINT UNSIGNED NOT NULL,
+  `uploaded_by_user_id` INT UNSIGNED NOT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_illegal_logging_photos_report` (`report_id`),
+  KEY `idx_illegal_logging_photos_uploader` (`uploaded_by_user_id`),
+  CONSTRAINT `fk_illegal_logging_photo_report` FOREIGN KEY (`report_id`) REFERENCES `tbl_illegal_logging_reports` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_illegal_logging_photo_uploader` FOREIGN KEY (`uploaded_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_illegal_logging_report_status_history` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `report_id` BIGINT UNSIGNED NOT NULL,
+  `previous_status` VARCHAR(50) DEFAULT NULL,
+  `new_status` VARCHAR(50) NOT NULL,
+  `changed_by_user_id` INT UNSIGNED NOT NULL,
+  `remarks` VARCHAR(500) DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_illegal_logging_history_report` (`report_id`, `created_at`),
+  KEY `idx_illegal_logging_history_actor` (`changed_by_user_id`),
+  CONSTRAINT `fk_illegal_logging_history_report` FOREIGN KEY (`report_id`) REFERENCES `tbl_illegal_logging_reports` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_illegal_logging_history_actor` FOREIGN KEY (`changed_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Area Management: a CENRO-internal reference registry of named geographic
+-- zones classified as allowed, restricted, or protected. Purely informational
+-- (no lifecycle, no Community-facing side, no link to the Tree Cutting Permit
+-- workflow); RPS or Superadmin may create/edit zone records.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `tbl_area_zones` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `zone_name` VARCHAR(150) NOT NULL,
+  `classification` VARCHAR(50) NOT NULL,
+  `province` VARCHAR(100) DEFAULT NULL,
+  `municipality` VARCHAR(100) DEFAULT NULL,
+  `barangay` VARCHAR(100) DEFAULT NULL,
+  `district` VARCHAR(100) DEFAULT NULL,
+  `coverage_description` VARCHAR(1000) DEFAULT NULL,
+  `boundary_geojson` MEDIUMTEXT DEFAULT NULL,
+  `center_lat` DECIMAL(10,7) DEFAULT NULL,
+  `center_lng` DECIMAL(10,7) DEFAULT NULL,
+  `notes` VARCHAR(1000) DEFAULT NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_by_user_id` INT UNSIGNED NOT NULL,
+  `updated_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_area_zone_name` (`zone_name`),
+  KEY `idx_area_zone_classification` (`classification`, `is_active`),
+  KEY `idx_area_zone_creator` (`created_by_user_id`),
+  KEY `idx_area_zone_updater` (`updated_by_user_id`),
+  CONSTRAINT `fk_area_zone_creator` FOREIGN KEY (`created_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_area_zone_updater` FOREIGN KEY (`updated_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Planting sites: an EMS-maintained advisory registry of recommended seedling
+-- planting locations. Environmental attributes (soil, moisture, season) are
+-- editable; initial values may be seeded from free public datasets (ISRIC
+-- SoilGrids, Open-Meteo, PAGASA climatological normals) and overridden by EMS
+-- field knowledge. Community users read recommendations on the seedling
+-- request page; the registry has no link to the permit workflow.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `tbl_planting_sites` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `site_name` VARCHAR(150) NOT NULL,
+  `province` VARCHAR(100) DEFAULT NULL,
+  `municipality` VARCHAR(100) DEFAULT NULL,
+  `barangay` VARCHAR(100) DEFAULT NULL,
+  `boundary_geojson` MEDIUMTEXT DEFAULT NULL,
+  `center_lat` DECIMAL(10,7) DEFAULT NULL,
+  `center_lng` DECIMAL(10,7) DEFAULT NULL,
+  `soil_type` VARCHAR(100) DEFAULT NULL,
+  `soil_ph` VARCHAR(50) DEFAULT NULL,
+  `moisture_level` VARCHAR(50) DEFAULT NULL,
+  `recommended_season` VARCHAR(150) DEFAULT NULL,
+  `suitable_species` VARCHAR(500) DEFAULT NULL,
+  `rationale` VARCHAR(1000) DEFAULT NULL,
+  `data_source` VARCHAR(255) DEFAULT NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_by_user_id` INT UNSIGNED NOT NULL,
+  `updated_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_planting_site_name` (`site_name`),
+  KEY `idx_planting_site_active` (`is_active`, `municipality`),
+  KEY `idx_planting_site_creator` (`created_by_user_id`),
+  KEY `idx_planting_site_updater` (`updated_by_user_id`),
+  CONSTRAINT `fk_planting_site_creator` FOREIGN KEY (`created_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_planting_site_updater` FOREIGN KEY (`updated_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- Public Advisories: CENRO-authored notices/announcements shown to logged-in
+-- Community users once published. Independent of the permit workflow. Any
+-- active RPS or Superadmin may author/publish (no dedicated permission gate).
+-- Lifecycle: draft -> published -> archived, with a direct draft -> archived
+-- discard shortcut for posts that never go live.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS `tbl_advisories` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `title` VARCHAR(200) NOT NULL,
+  `body` TEXT NOT NULL,
+  `current_status` VARCHAR(20) NOT NULL DEFAULT 'draft',
+  `is_public` TINYINT(1) NOT NULL DEFAULT 1,
+  `event_at` DATETIME NULL DEFAULT NULL,
+  `image_path` VARCHAR(500) DEFAULT NULL,
+  `image_original_name` VARCHAR(255) DEFAULT NULL,
+  `image_mime_type` VARCHAR(100) DEFAULT NULL,
+  `image_size_bytes` INT UNSIGNED DEFAULT NULL,
+  `published_at` TIMESTAMP NULL DEFAULT NULL,
+  `archived_at` TIMESTAMP NULL DEFAULT NULL,
+  `created_by_user_id` INT UNSIGNED NOT NULL,
+  `updated_by_user_id` INT UNSIGNED DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` TIMESTAMP NULL DEFAULT NULL ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_advisory_status` (`current_status`, `published_at`),
+  KEY `idx_advisory_creator` (`created_by_user_id`),
+  KEY `idx_advisory_updater` (`updated_by_user_id`),
+  CONSTRAINT `fk_advisory_creator` FOREIGN KEY (`created_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_advisory_updater` FOREIGN KEY (`updated_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `tbl_advisory_status_history` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `advisory_id` BIGINT UNSIGNED NOT NULL,
+  `previous_status` VARCHAR(20) DEFAULT NULL,
+  `new_status` VARCHAR(20) NOT NULL,
+  `changed_by_user_id` INT UNSIGNED NOT NULL,
+  `remarks` VARCHAR(500) DEFAULT NULL,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_advisory_history_advisory` (`advisory_id`, `created_at`),
+  KEY `idx_advisory_history_actor` (`changed_by_user_id`),
+  CONSTRAINT `fk_advisory_history_advisory` FOREIGN KEY (`advisory_id`) REFERENCES `tbl_advisories` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT,
+  CONSTRAINT `fk_advisory_history_actor` FOREIGN KEY (`changed_by_user_id`) REFERENCES `tbl_users` (`id`) ON DELETE RESTRICT ON UPDATE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

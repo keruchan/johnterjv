@@ -58,7 +58,7 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=6">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -73,10 +73,10 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
                     <div>
                         <div class="eyebrow">CENRO Superadmin &middot; Operational Review</div>
                         <h1 class="page-title">Audit History</h1>
-                        <p class="text-secondary meta-copy mb-0">Read-only record of authenticated actions and login attempts across CERTREEFY.</p>
+                        <p class="text-secondary meta-copy mb-0">A read-only record of what has happened across CERTREEFY — who did what, and when.</p>
                     </div>
                     <div class="d-flex align-items-center gap-2">
-                        <span class="officer-chip">
+                        <?php render_certreefy_notification_bell('header'); ?><span class="officer-chip">
                             <span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span>
                             <?php echo e($displayName); ?>
                         </span>
@@ -132,7 +132,7 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
 
             <section class="docket-panel mb-4" aria-labelledby="auditTrailHeading">
                 <div class="section-heading">
-                    <h2 id="auditTrailHeading">General Audit Trail</h2>
+                    <h2 id="auditTrailHeading">Activity Log</h2>
                     <span class="section-note tabular">
                         <?php echo e((string) $auditList['first']); ?>-<?php echo e((string) $auditList['last']); ?> of <?php echo e((string) $auditList['total']); ?>
                     </span>
@@ -142,19 +142,18 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
                     <table class="table align-middle mb-0">
                         <thead>
                             <tr>
-                                <th scope="col">Actor</th>
+                                <th scope="col">Who</th>
                                 <th scope="col">Category</th>
-                                <th scope="col">Action</th>
-                                <th scope="col">Entity</th>
-                                <th scope="col">Description / details</th>
-                                <th scope="col">IP address</th>
+                                <th scope="col">What happened</th>
+                                <th scope="col">Related record</th>
+                                <th scope="col">Details</th>
                                 <th scope="col">When</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if ($auditList['entries'] === []): ?>
                                 <tr>
-                                    <td colspan="7" class="text-center text-secondary py-5">No audit trail entries found.</td>
+                                    <td colspan="6" class="text-center text-secondary py-5">No activity found.</td>
                                 </tr>
                             <?php endif; ?>
                             <?php foreach ($auditList['entries'] as $entry): ?>
@@ -164,18 +163,9 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
                                         <div class="small text-secondary">@<?php echo e((string) $entry['actor_username']); ?></div>
                                     </td>
                                     <td><span class="badge <?php echo e(audit_trail_category_badge((string) $entry['category'])); ?>"><?php echo e($categoryLabels[$entry['category']] ?? ucfirst((string) $entry['category'])); ?></span></td>
-                                    <td class="text-break"><?php echo e(str_replace('_', ' ', (string) $entry['action'])); ?></td>
-                                    <td class="small text-secondary"><?php echo $entry['entity_type'] !== null ? e((string) $entry['entity_type']) . ' #' . e((string) $entry['entity_id']) : '-'; ?></td>
-                                    <td class="small">
-                                        <?php echo $entry['description'] !== null ? e((string) $entry['description']) : '<span class="text-secondary">-</span>'; ?>
-                                        <?php if (!empty($entry['details'])): ?>
-                                            <details class="mt-1">
-                                                <summary class="text-secondary" style="cursor:pointer;">View details</summary>
-                                                <pre class="small text-break bg-light border rounded p-2 mt-1 mb-0"><?php echo e((string) json_encode(json_decode((string) $entry['details'], true), JSON_PRETTY_PRINT)); ?></pre>
-                                            </details>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="small text-secondary"><?php echo e((string) ($entry['ip_address'] ?? '-')); ?></td>
+                                    <td class="text-break"><?php echo e(ucwords(str_replace('_', ' ', (string) $entry['action']))); ?></td>
+                                    <td class="small text-secondary"><?php echo $entry['entity_type'] !== null ? e(ucwords(str_replace('_', ' ', (string) $entry['entity_type']))) . ' #' . e((string) $entry['entity_id']) : '-'; ?></td>
+                                    <td class="small"><?php echo $entry['description'] !== null ? e((string) $entry['description']) : '<span class="text-secondary">-</span>'; ?></td>
                                     <td class="text-nowrap small"><?php echo e(date('M j, Y g:i A', strtotime((string) $entry['created_at']))); ?></td>
                                 </tr>
                             <?php endforeach; ?>
@@ -203,7 +193,7 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
                     <input type="hidden" name="audit_date_from" value="<?php echo e($auditFilters['date_from']); ?>">
                     <input type="hidden" name="audit_date_to" value="<?php echo e($auditFilters['date_to']); ?>">
                     <div class="col-lg-4">
-                        <label for="loginSearch" class="form-label">Search identifier</label>
+                        <label for="loginSearch" class="form-label">Search username/email</label>
                         <div class="input-group">
                             <span class="input-group-text"><i class="bi bi-search"></i></span>
                             <input type="search" class="form-control" id="loginSearch" name="login_q" value="<?php echo e($loginFilters['q']); ?>" maxlength="150" placeholder="Username or email attempted">
@@ -244,17 +234,16 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
                     <table class="table align-middle mb-0">
                         <thead>
                             <tr>
-                                <th scope="col">Identifier attempted</th>
-                                <th scope="col">Matched account</th>
+                                <th scope="col">Username or email entered</th>
+                                <th scope="col">Account</th>
                                 <th scope="col">Result</th>
-                                <th scope="col">IP address</th>
                                 <th scope="col">When</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if ($loginList['attempts'] === []): ?>
                                 <tr>
-                                    <td colspan="5" class="text-center text-secondary py-5">No login attempts found.</td>
+                                    <td colspan="4" class="text-center text-secondary py-5">No login attempts found.</td>
                                 </tr>
                             <?php endif; ?>
                             <?php foreach ($loginList['attempts'] as $attempt): ?>
@@ -262,7 +251,6 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
                                     <td class="text-break"><?php echo e((string) $attempt['identifier']); ?></td>
                                     <td class="small text-secondary"><?php echo $attempt['matched_user_name'] !== null ? e((string) $attempt['matched_user_name']) : 'Unmatched'; ?></td>
                                     <td><span class="badge <?php echo (int) $attempt['was_successful'] === 1 ? 'text-bg-success' : 'text-bg-danger'; ?>"><?php echo (int) $attempt['was_successful'] === 1 ? 'Success' : 'Failed'; ?></span></td>
-                                    <td class="small text-secondary"><?php echo e((string) ($attempt['ip_address'] ?? '-')); ?></td>
                                     <td class="text-nowrap small"><?php echo e(date('M j, Y g:i A', strtotime((string) $attempt['created_at']))); ?></td>
                                 </tr>
                             <?php endforeach; ?>

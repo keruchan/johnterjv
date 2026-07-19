@@ -817,7 +817,7 @@ function record_permit_review_action(
             'begin_review' => 'RPS began reviewing application ' . $application['transaction_id'] . '.',
             'return_for_correction' => 'Application ' . $application['transaction_id'] . ' was returned for correction. Remarks: ' . $notes,
             'request_requirements' => 'Additional requirements were requested for application ' . $application['transaction_id'] . '. Remarks: ' . $notes,
-            'approve' => 'Application ' . $application['transaction_id'] . ' was approved for ' . $approvedTreeCount . ' tree(s). A seedling donation requirement of ' . (int) $donationRequirement['count'] . ' seedlings was created under policy ' . $donationRequirement['code'] . ' version ' . $donationRequirement['version'] . '. Coordinate with EMS using the transaction ID. This is not a permit release.',
+            'approve' => 'Application ' . $application['transaction_id'] . ' was approved for ' . $approvedTreeCount . ' tree(s). Your next task: donate ' . (int) $donationRequirement['count'] . ' seedlings in person at the EMS unit. Give the EMS staff your transaction ID ' . $application['transaction_id'] . ' (your name works too if you forget it). The permit is released only after the donation is complied and RPS confirms it.',
             'decline' => 'Application ' . $application['transaction_id'] . ' was declined. Reason: ' . $notes,
         };
         create_notification(

@@ -70,10 +70,10 @@ if (DISPLAY_ERRORS) {
 // Adjust these constants to match your local/production
 // MySQL environment. Credentials should ideally be pulled from
 // environment variables outside of source control in production.
-define('DB_HOST', '127.0.0.1');
-define('DB_NAME', 'certreefy_db');
-define('DB_USER', 'root');
-define('DB_PASS', '');
+define('DB_HOST', 'localhost');
+define('DB_NAME', 'u763192172_certreefy');
+define('DB_USER', 'u763192172_certreefy');
+define('DB_PASS', 'Certjja3');
 define('DB_CHARSET', 'utf8mb4');
 
 // Permit scans are private records. The default storage directory sits outside
@@ -107,6 +107,44 @@ $inspectionPhotoMaxBytes = filter_var(getenv('CERTREEFY_INSPECTION_PHOTO_MAX_BYT
 define(
     'PERMIT_INSPECTION_PHOTO_MAX_BYTES',
     $inspectionPhotoMaxBytes === false ? 10 * 1024 * 1024 : $inspectionPhotoMaxBytes
+);
+
+// Illegal-logging report evidence photos are a distinct, sensitive evidence
+// category and are kept in their own private directory.
+$illegalLoggingStorageOverride = trim((string) getenv('CERTREEFY_ILLEGAL_LOGGING_STORAGE'));
+define(
+    'ILLEGAL_LOGGING_STORAGE_ROOT',
+    $illegalLoggingStorageOverride !== ''
+        ? $illegalLoggingStorageOverride
+        : dirname(__DIR__, 3) . DIRECTORY_SEPARATOR . 'private'
+            . DIRECTORY_SEPARATOR . 'certreefy' . DIRECTORY_SEPARATOR . 'illegal_logging_reports'
+);
+$illegalLoggingPhotoMaxBytes = filter_var(getenv('CERTREEFY_ILLEGAL_LOGGING_PHOTO_MAX_BYTES'), FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 1024, 'max_range' => 50 * 1024 * 1024],
+]);
+define(
+    'ILLEGAL_LOGGING_PHOTO_MAX_BYTES',
+    $illegalLoggingPhotoMaxBytes === false ? 10 * 1024 * 1024 : $illegalLoggingPhotoMaxBytes
+);
+
+// Public advisory/announcement images are shown to anonymous visitors on the
+// landing page, so unlike permit/inspection evidence they live inside the web
+// root (a public uploads directory) rather than a private store.
+$advisoryImageStorageOverride = trim((string) getenv('CERTREEFY_ADVISORY_IMAGE_STORAGE'));
+define(
+    'ADVISORY_IMAGE_STORAGE_ROOT',
+    $advisoryImageStorageOverride !== ''
+        ? $advisoryImageStorageOverride
+        : dirname(__DIR__) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'advisories'
+);
+// Public URL path (relative to the site root) that maps to the storage root above.
+define('ADVISORY_IMAGE_PUBLIC_BASE', 'uploads/advisories');
+$advisoryImageMaxBytes = filter_var(getenv('CERTREEFY_ADVISORY_IMAGE_MAX_BYTES'), FILTER_VALIDATE_INT, [
+    'options' => ['min_range' => 1024, 'max_range' => 20 * 1024 * 1024],
+]);
+define(
+    'ADVISORY_IMAGE_MAX_BYTES',
+    $advisoryImageMaxBytes === false ? 5 * 1024 * 1024 : $advisoryImageMaxBytes
 );
 
 // Login throttling slows down credential-guessing. Two independent windows are
@@ -172,6 +210,18 @@ $permitClaimLocation = trim((string) getenv('CERTREEFY_PERMIT_CLAIM_LOCATION'));
 define(
     'CERTREEFY_PERMIT_CLAIM_LOCATION',
     $permitClaimLocation !== '' ? $permitClaimLocation : 'the CENRO Sta. Cruz, Laguna office'
+);
+
+// Public seedling-request program: server-enforced maximum seedlings a single
+// Community request may ask for across all species. Tunable per office.
+$seedlingMaxPerRequest = filter_var(
+    getenv('CERTREEFY_SEEDLING_MAX_PER_REQUEST'),
+    FILTER_VALIDATE_INT,
+    ['options' => ['min_range' => 1, 'max_range' => 100000]]
+);
+define(
+    'CERTREEFY_SEEDLING_MAX_PER_REQUEST',
+    $seedlingMaxPerRequest === false ? 50 : $seedlingMaxPerRequest
 );
 
 // Runtime and one-time setup share one authoritative donation policy source.

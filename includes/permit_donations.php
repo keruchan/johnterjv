@@ -180,7 +180,8 @@ function permit_list_donation_requirements_for_ems(
          INNER JOIN tbl_permit_applications a ON a.id = r.application_id
          INNER JOIN tbl_users u ON u.id = r.imposed_by_user_id
          WHERE a.decision_status = \'approved\'
-           AND a.application_status NOT IN (\'declined\', \'closed\')';
+           AND a.application_status NOT IN (\'declined\', \'closed\')
+           AND r.current_status NOT IN (\'ems_verified\', \'rps_verified\', \'waived\')';
     $params = [];
     if ($transactionFilter !== '') {
         $sql .= ' AND a.transaction_id LIKE :transaction_filter';
@@ -206,7 +207,10 @@ function permit_list_donation_requirements_for_ems(
         $sql .= ' AND DATE(r.imposed_at) <= :date_to';
         $params[':date_to'] = $dateTo;
     }
-    $sql .= ' ORDER BY r.imposed_at DESC, r.id DESC';
+    // Actionable donations (awaiting the applicant's in-person hand-over or
+    // still partial) surface first; verified/closed transactions follow.
+    $sql .= ' ORDER BY (r.current_status IN (\'ems_verified\', \'rps_verified\', \'waived\')) ASC,
+                       r.imposed_at DESC, r.id DESC';
     $stmt = $pdo->prepare($sql);
     $stmt->execute($params);
 

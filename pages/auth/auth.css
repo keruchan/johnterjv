@@ -1,0 +1,257 @@
+/* ============================================================
+   Shared auth styling for CERTREEFY login and registration.
+   Palette and typography mirror the protected dashboard
+   (css/dashboard.css): canopy/fern greens, parchment, Fraunces
+   display + Inter body, so the public entry points feel like the
+   same product as the internal system.
+   ============================================================ */
+
+:root {
+    --canopy-950: #12241d;
+    --canopy-900: #1b4332;
+    --canopy-800: #235843;
+    --fern-600: #2d6a4f;
+    --fern-500: #3a7d5d;
+    --moss-400: #74a57f;
+    --sprout-100: #eef4ef;
+    --parchment: #f6f4ec;
+    --paper: #ffffff;
+    --line: #e2ddca;
+    --ink-900: #202b22;
+    --ink-600: #566058;
+    --ink-400: #7c877e;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    min-height: 100vh;
+    margin: 0;
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    color: var(--ink-900);
+    background:
+        radial-gradient(1200px 500px at 80% -10%, rgba(45, 106, 79, 0.12), transparent 60%),
+        linear-gradient(180deg, rgba(238, 244, 239, 0.9), rgba(246, 244, 236, 0.96) 40%),
+        var(--parchment);
+    -webkit-font-smoothing: antialiased;
+}
+
+.auth-shell {
+    min-height: 100vh;
+    animation: authRise 0.5s ease both;
+}
+
+@keyframes authRise {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .auth-shell { animation: none; }
+}
+
+.auth-card {
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 30px 70px -40px rgba(18, 36, 29, 0.5), 0 2px 6px rgba(18, 36, 29, 0.05);
+    overflow: hidden;
+    background: var(--paper);
+}
+
+/* ---- Dark canopy side panel ---- */
+.auth-side {
+    position: relative;
+    overflow: hidden;
+    color: #eaf3ec;
+    background:
+        radial-gradient(120% 80% at 0% 0%, rgba(58, 125, 93, 0.5), transparent 55%),
+        linear-gradient(160deg, var(--canopy-900), var(--canopy-950));
+}
+
+.auth-side .seal-watermark {
+    position: absolute;
+    top: -40px;
+    right: -50px;
+    width: 230px;
+    height: 230px;
+    border: 16px dashed rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    opacity: 0.08;
+    pointer-events: none;
+}
+
+.auth-side-body,
+.auth-side-foot {
+    position: relative;
+    z-index: 1;
+}
+
+.brand-seal {
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    color: #fff;
+    font-size: 1.25rem;
+    background: radial-gradient(circle at 35% 30%, var(--fern-600), var(--canopy-900) 72%);
+    border: 2px dashed rgba(255, 255, 255, 0.55);
+    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+}
+
+.brand-word {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    line-height: 1.05;
+}
+
+.brand-sub {
+    color: #b9c9bd;
+    font-size: 0.74rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-top: 0.15rem;
+}
+
+.auth-headline {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 1.5rem;
+    font-weight: 600;
+    line-height: 1.18;
+    color: #fff;
+}
+
+.auth-side-foot {
+    border-top: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+/* ---- Form panel ---- */
+.section-label {
+    color: var(--fern-600);
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+
+.auth-title {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 1.55rem;
+    font-weight: 600;
+    color: var(--ink-900);
+    line-height: 1.15;
+}
+
+.form-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--ink-600);
+}
+
+.form-control {
+    border-color: #d6d0bb;
+    border-radius: var(--radius-md);
+    padding: 0.72rem 0.9rem;
+    font-size: 0.95rem;
+    background: #fcfdfb;
+}
+
+.form-control:focus {
+    border-color: var(--fern-600);
+    box-shadow: 0 0 0 0.2rem rgba(45, 106, 79, 0.15);
+    background: #fff;
+}
+
+.form-control:disabled {
+    background: var(--sprout-100);
+    color: var(--ink-600);
+}
+
+/* Icon-affixed inputs (login) */
+.input-affix {
+    position: relative;
+}
+
+.input-affix > i:first-child {
+    position: absolute;
+    left: 0.85rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--ink-400);
+    font-size: 1rem;
+    pointer-events: none;
+}
+
+.input-affix > i:first-child ~ .form-control {
+    padding-left: 2.5rem;
+}
+
+.toggle-password {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 0;
+    background: transparent;
+    color: var(--ink-400);
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.toggle-password:hover {
+    color: var(--fern-600);
+    background: var(--sprout-100);
+}
+
+.btn-certreefy {
+    --bs-btn-color: #fff;
+    --bs-btn-bg: var(--fern-600);
+    --bs-btn-border-color: var(--fern-600);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--canopy-800);
+    --bs-btn-hover-border-color: var(--canopy-800);
+    --bs-btn-focus-shadow-rgb: 45, 106, 79;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    padding: 0.8rem 1rem;
+    box-shadow: 0 10px 24px -14px rgba(45, 106, 79, 0.9);
+}
+
+.auth-link {
+    color: var(--fern-600);
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.auth-link:hover {
+    color: var(--canopy-900);
+    text-decoration: underline;
+}
+
+.auth-note {
+    background: var(--sprout-100);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+}
+
+.auth-note .note-title {
+    color: var(--ink-900);
+    font-weight: 700;
+}
+
+a:focus-visible,
+button:focus-visible,
+.form-control:focus-visible {
+    outline: 2.5px solid var(--fern-600);
+    outline-offset: 2px;
+}

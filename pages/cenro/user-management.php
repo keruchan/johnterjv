@@ -26,6 +26,7 @@ $successMessage = '';
 $viewUser = null;
 $editUser = null;
 $editForm = empty_user_profile_data() + ['role' => 'community'];
+$createForm = empty_user_profile_data() + ['role' => 'community'];
 $modalToOpen = null;
 
 if (empty($_SESSION['csrf_user_management_token'])) {
@@ -39,15 +40,119 @@ if (!empty($_SESSION['user_management_success'])) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string) ($_POST['action'] ?? '');
+    $submittedToken = (string) ($_POST['csrf_token'] ?? '');
+    $sessionToken = (string) ($_SESSION['csrf_user_management_token'] ?? '');
+    $csrfValid = $sessionToken !== '' && $submittedToken !== '' && hash_equals($sessionToken, $submittedToken);
+
+    if (!$csrfValid) {
+        $errors[] = 'Security validation failed. Please refresh the page and try again.';
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'create_user') {
+    $modalToOpen = 'addUserModal';
+    $createForm = user_profile_data_from_input($_POST);
+    $createForm['role'] = trim((string) ($_POST['role'] ?? ''));
+    $newPassword = (string) ($_POST['new_password'] ?? '');
+    $confirmNewPassword = (string) ($_POST['confirm_new_password'] ?? '');
+
+    $errors = array_merge($errors, validate_user_profile_data($createForm));
+
+    if (!array_key_exists($createForm['role'], $editableRoles)) {
+        $errors[] = 'Select an authorized user role.';
+    }
+    if ($newPassword === '') {
+        $errors[] = 'Enter a password.';
+    } elseif (strlen($newPassword) < 8) {
+        $errors[] = 'The password must be at least 8 characters.';
+    } elseif (strlen($newPassword) > 128) {
+        $errors[] = 'The password must not exceed 128 characters.';
+    } elseif ($confirmNewPassword === '') {
+        $errors[] = 'Confirm the password.';
+    } elseif ($newPassword !== $confirmNewPassword) {
+        $errors[] = 'Password and confirmation do not match.';
+    }
+
+    if ($errors === []) {
+        try {
+            $conflicts = find_user_identity_conflicts($pdo, $createForm['username'], $createForm['email']);
+            if ($conflicts['username']) {
+                $errors[] = 'Username is already taken.';
+            }
+            if ($conflicts['email']) {
+                $errors[] = 'Email address is already registered.';
+            }
+        } catch (PDOException $e) {
+            error_log('[CERTREEFY USER MANAGEMENT CREATE CONFLICT ERROR] ' . $e->getMessage());
+            $errors[] = 'Unable to validate the account information at this time.';
+        }
+    }
+
+    if ($errors === []) {
+        try {
+            $pdo->beginTransaction();
+
+            $insertStmt = $pdo->prepare(
+                'INSERT INTO tbl_users (fname, mname, lname, email, contact, address, username, password, role, status)
+                 VALUES (:fname, :mname, :lname, :email, :contact, :address, :username, :password, :role, \'active\')'
+            );
+            $insertStmt->execute([
+                ':fname'    => $createForm['fname'],
+                ':mname'    => $createForm['mname'] !== '' ? $createForm['mname'] : null,
+                ':lname'    => $createForm['lname'],
+                ':email'    => $createForm['email'],
+                ':contact'  => $createForm['contact'],
+                ':address'  => $createForm['address'],
+                ':username' => $createForm['username'],
+                ':password' => password_hash($newPassword, PASSWORD_DEFAULT),
+                ':role'     => $createForm['role'],
+            ]);
+            $newUserId = (int) $pdo->lastInsertId();
+
+            record_audit_event(
+                $pdo,
+                $actorUserId,
+                'user_management',
+                'user_created',
+                'user',
+                $newUserId,
+                'Registered a new user account.',
+                [
+                    'role' => $createForm['role'],
+                    'name' => trim($createForm['fname'] . ' ' . $createForm['lname']),
+                ]
+            );
+
+            $pdo->commit();
+            $_SESSION['user_management_success'] = 'Account created for '
+                . trim($createForm['fname'] . ' ' . $createForm['lname'])
+                . ' (' . $roleLabels[$createForm['role']] . ').';
+            header('Location: ' . $formAction);
+            exit;
+        } catch (PDOException $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('[CERTREEFY USER MANAGEMENT CREATE ERROR] ' . $e->getMessage());
+            $errors[] = $e->getCode() === '23000'
+                ? 'Username or email address is already registered.'
+                : 'Unable to create the account at this time. Please try again.';
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            error_log('[CERTREEFY USER MANAGEMENT CREATE ERROR] ' . $e->getMessage());
+            $errors[] = 'Unable to create the account at this time. Please try again.';
+        }
+    }
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') !== 'create_user') {
+    $action = (string) ($_POST['action'] ?? '');
     $targetUserId = filter_var($_POST['target_user_id'] ?? null, FILTER_VALIDATE_INT, [
         'options' => ['min_range' => 1],
     ]);
-    $submittedToken = (string) ($_POST['csrf_token'] ?? '');
-    $sessionToken = (string) ($_SESSION['csrf_user_management_token'] ?? '');
 
-    if ($sessionToken === '' || $submittedToken === '' || !hash_equals($sessionToken, $submittedToken)) {
-        $errors[] = 'Security validation failed. Please refresh the page and try again.';
-    }
     if ($targetUserId === false || $targetUserId === null) {
         $errors[] = 'A valid user account is required.';
     }
@@ -348,7 +453,7 @@ $filters['page'] = $userList['page'];
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=6">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -366,7 +471,7 @@ $filters['page'] = $userList['page'];
                         <p class="text-secondary meta-copy mb-0">Account records and access status for CERTREEFY users.</p>
                     </div>
                     <div class="d-flex align-items-center gap-2">
-                        <span class="officer-chip">
+                        <?php render_certreefy_notification_bell('header'); ?><span class="officer-chip">
                             <span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span>
                             <?php echo e($displayName); ?>
                         </span>
@@ -390,7 +495,7 @@ $filters['page'] = $userList['page'];
                 </div>
             <?php endif; ?>
 
-            <?php if ($errors !== [] && $modalToOpen !== 'editUserModal'): ?>
+            <?php if ($errors !== [] && !in_array($modalToOpen, ['editUserModal', 'addUserModal'], true)): ?>
                 <div class="alert alert-danger" role="alert">
                     <?php foreach ($errors as $error): ?>
                         <div><?php echo e($error); ?></div>
@@ -458,9 +563,12 @@ $filters['page'] = $userList['page'];
             <section class="docket-panel user-table-panel" aria-labelledby="userTableHeading">
                 <div class="section-heading">
                     <h2 id="userTableHeading">User Registry</h2>
-                    <span class="section-note tabular">
-                        <?php echo e((string) $userList['first']); ?>-<?php echo e((string) $userList['last']); ?> of <?php echo e((string) $userList['total']); ?>
-                    </span>
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="section-note tabular">
+                            <?php echo e((string) $userList['first']); ?>-<?php echo e((string) $userList['last']); ?> of <?php echo e((string) $userList['total']); ?>
+                        </span>
+                        <button type="button" class="btn btn-certreefy btn-sm" data-bs-toggle="modal" data-bs-target="#addUserModal"><i class="bi bi-person-plus me-1"></i>Add user</button>
+                    </div>
                 </div>
 
                 <div class="table-responsive">
@@ -509,7 +617,7 @@ $filters['page'] = $userList['page'];
                                                 <i class="bi bi-eye"></i>
                                             </a>
                                             <?php if ($isModifiable): ?>
-                                                <a class="btn btn-sm btn-outline-secondary icon-action" href="user-management.php?<?php echo e($editQuery); ?>" title="Edit user" data-bs-toggle="tooltip" aria-label="Edit <?php echo e($fullName); ?>">
+                                                <a class="btn btn-sm btn-outline-primary icon-action" href="user-management.php?<?php echo e($editQuery); ?>" title="Edit user" data-bs-toggle="tooltip" aria-label="Edit <?php echo e($fullName); ?>">
                                                     <i class="bi bi-pencil"></i>
                                                 </a>
                                                 <div class="dropdown">
@@ -632,6 +740,166 @@ $filters['page'] = $userList['page'];
             </div>
         </div>
     <?php endif; ?>
+
+    <div class="modal fade" id="addUserModal" tabindex="-1" aria-labelledby="addUserModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content account-modal">
+                <form method="post" action="<?php echo e($formAction); ?>" novalidate>
+                    <div class="modal-header account-modal-header">
+                        <div class="d-flex align-items-center gap-3">
+                            <span class="account-modal-icon" aria-hidden="true"><i class="bi bi-person-plus"></i></span>
+                            <div>
+                                <div class="eyebrow mb-1">CENRO Superadmin &middot; Account Registry</div>
+                                <h2 class="modal-title fs-5" id="addUserModalLabel">Add User Account</h2>
+                                <p class="account-modal-subtitle mb-0">Create an active account for Community, RPS, or EMS access.</p>
+                            </div>
+                        </div>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <?php if ($errors !== [] && $modalToOpen === 'addUserModal'): ?>
+                            <div class="alert alert-danger" role="alert">
+                                <?php foreach ($errors as $error): ?><div><?php echo e($error); ?></div><?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
+                        <p class="small text-secondary">Creates an active RPS, EMS, or Community account. Superadmin accounts can't be created here.</p>
+
+                        <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_user_management_token']); ?>">
+                        <input type="hidden" name="action" value="create_user">
+
+                        <div class="row g-4">
+                            <div class="col-lg-8">
+                                <div class="account-form-section">
+                                    <div class="account-section-heading">
+                                        <span aria-hidden="true"><i class="bi bi-person-vcard"></i></span>
+                                        <div>
+                                            <h3>Identity</h3>
+                                            <p>Use the staff or applicant's official account details.</p>
+                                        </div>
+                                    </div>
+                                    <div class="row g-3">
+                                        <div class="col-md-4">
+                                            <label class="form-label" for="addFname">First name</label>
+                                            <input class="form-control" id="addFname" name="fname" value="<?php echo e($createForm['fname']); ?>" maxlength="100" autocomplete="given-name" required>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label" for="addMname">Middle name</label>
+                                            <input class="form-control" id="addMname" name="mname" value="<?php echo e($createForm['mname']); ?>" maxlength="100" autocomplete="additional-name">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label class="form-label" for="addLname">Last name</label>
+                                            <input class="form-control" id="addLname" name="lname" value="<?php echo e($createForm['lname']); ?>" maxlength="100" autocomplete="family-name" required>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" for="addUsername">Username</label>
+                                            <div class="input-group">
+                                                <span class="input-group-text" aria-hidden="true">@</span>
+                                                <input class="form-control" id="addUsername" name="username" value="<?php echo e($createForm['username']); ?>" maxlength="50" autocomplete="username" required>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" for="addEmail">Email address</label>
+                                            <div class="input-group">
+                                                <span class="input-group-text" aria-hidden="true"><i class="bi bi-envelope"></i></span>
+                                                <input type="email" class="form-control" id="addEmail" name="email" value="<?php echo e($createForm['email']); ?>" maxlength="150" autocomplete="email" required>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="account-form-section">
+                                    <div class="account-section-heading">
+                                        <span aria-hidden="true"><i class="bi bi-telephone"></i></span>
+                                        <div>
+                                            <h3>Contact Information</h3>
+                                            <p>Keep these details reachable for account notices and verification.</p>
+                                        </div>
+                                    </div>
+                                    <div class="row g-3">
+                                        <div class="col-md-5">
+                                            <label class="form-label" for="addContact">Contact number</label>
+                                            <input class="form-control" id="addContact" name="contact" value="<?php echo e($createForm['contact']); ?>" maxlength="20" autocomplete="tel" required>
+                                        </div>
+                                        <div class="col-md-7">
+                                            <label class="form-label" for="addAddress">Address</label>
+                                            <textarea class="form-control" id="addAddress" name="address" rows="3" maxlength="255" autocomplete="street-address" required><?php echo e($createForm['address']); ?></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="account-form-section mb-lg-0">
+                                    <div class="account-section-heading">
+                                        <span aria-hidden="true"><i class="bi bi-shield-lock"></i></span>
+                                        <div>
+                                            <h3>Sign-in Security</h3>
+                                            <p>Set the temporary password the user will use on first sign-in.</p>
+                                        </div>
+                                    </div>
+                                    <div class="row g-3">
+                                        <div class="col-md-6">
+                                            <label class="form-label" for="addPassword">Password</label>
+                                            <input type="password" class="form-control" id="addPassword" name="new_password" minlength="8" maxlength="128" autocomplete="new-password" required>
+                                            <div class="form-text">Use at least 8 characters.</div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label" for="addConfirmPassword">Confirm password</label>
+                                            <input type="password" class="form-control" id="addConfirmPassword" name="confirm_new_password" minlength="8" maxlength="128" autocomplete="new-password" required>
+                                            <div class="form-text">Must match the password above.</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="col-lg-4">
+                                <aside class="account-side-panel" aria-label="New account setup">
+                                    <div class="account-side-status">
+                                        <span class="account-status status-active">Active on create</span>
+                                    </div>
+                                    <h3>Account Access</h3>
+                                    <p>Choose the operational role for this user. Superadmin accounts are protected and are not created from this form.</p>
+
+                                    <div class="role-choice-group" role="radiogroup" aria-labelledby="addRoleGroupLabel">
+                                        <div class="form-label" id="addRoleGroupLabel">Role</div>
+                                        <?php
+                                        $roleIcons = [
+                                            'community' => 'bi-people',
+                                            'rps'       => 'bi-clipboard-check',
+                                            'ems'       => 'bi-tree',
+                                        ];
+                                        $roleDescriptions = [
+                                            'community' => 'Permit applications, requests, reports, and tracking.',
+                                            'rps'       => 'CENRO review, verification, and processing work queues.',
+                                            'ems'       => 'Seedling inventory, donations, requests, and claim slips.',
+                                        ];
+                                        ?>
+                                        <?php foreach ($editableRoles as $value => $label): ?>
+                                            <label class="role-choice" for="addRole<?php echo e(ucfirst($value)); ?>">
+                                                <input class="form-check-input" type="radio" id="addRole<?php echo e(ucfirst($value)); ?>" name="role" value="<?php echo e($value); ?>" <?php echo $createForm['role'] === $value ? 'checked' : ''; ?> required>
+                                                <span class="role-choice-icon" aria-hidden="true"><i class="bi <?php echo e($roleIcons[$value] ?? 'bi-person'); ?>"></i></span>
+                                                <span>
+                                                    <span class="role-choice-title"><?php echo e($label); ?></span>
+                                                    <span class="role-choice-desc"><?php echo e($roleDescriptions[$value] ?? 'Authorized CERTREEFY account access.'); ?></span>
+                                                </span>
+                                            </label>
+                                        <?php endforeach; ?>
+                                    </div>
+
+                                    <div class="account-side-note">
+                                        <i class="bi bi-info-circle" aria-hidden="true"></i>
+                                        <span>The account is created as Active and can be suspended or deactivated later from the registry actions.</span>
+                                    </div>
+                                </aside>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer account-modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-certreefy"><i class="bi bi-person-plus me-1"></i>Create account</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
 
     <div class="modal fade" id="statusModal" tabindex="-1" aria-labelledby="statusModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">

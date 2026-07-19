@@ -18,7 +18,7 @@ function Invoke-Login([string] $Username, [string] $CookiePath) {
 }
 
 function Get-ReceiptForm([string] $CookiePath, [int] $ApplicationId, [int] $EditReceiptId = 0) {
-    $url = "$script:baseUrl/pages/ems/donation-requirements.php?application_id=$ApplicationId"
+    $url = "$script:baseUrl/pages/ems/donation-receipt.php?application_id=$ApplicationId"
     if ($EditReceiptId -gt 0) { $url += "&edit_receipt=$EditReceiptId" }
     $html = ((& curl.exe -s -b $CookiePath $url) -join "`n")
     $form = [regex]::Match($html, '<form method="post" action="donation-receipt-action\.php" id="donation-receipt-form".*?</form>', 'Singleline')
@@ -26,7 +26,7 @@ function Get-ReceiptForm([string] $CookiePath, [int] $ApplicationId, [int] $Edit
         $preview = ([regex]::Replace($html, '<[^>]+>', ' ') -replace '\s+', ' ').Trim()
         if ($preview.Length -gt 500) { $preview = $preview.Substring(0, 500) }
         $markers = @()
-        foreach ($marker in @('Donation Receipt','Receipt entry is locked','selected donation requirement','Unable to load','Record receipt')) {
+        foreach ($marker in @('Donation Receipt','selected donation requirement','Unable to load','Record receipt')) {
             if ($html -match [regex]::Escape($marker)) { $markers += $marker }
         }
         throw "Unable to find receipt form for application $ApplicationId. Markers: $($markers -join ', '). Page preview: $preview"
@@ -59,7 +59,12 @@ function Invoke-ReceiptAction(
         '--data-urlencode',"received_on=$((Get-Date).ToString('yyyy-MM-dd'))",
         '--data-urlencode',"verification_notes=$Remarks")
     foreach ($item in $Items) {
-        $arguments += @('--data-urlencode', "seedling_type[]=$($item.Type)")
+        # Species are now resolved against the seedling inventory; "other" plus
+        # a typed name exercises the auto-encode-on-receipt path used by every
+        # item here (matching an existing species reuses it, per
+        # permit_donation_find_or_create_species()).
+        $arguments += @('--data-urlencode', 'inventory_id[]=other')
+        $arguments += @('--data-urlencode', "other_species_name[]=$($item.Type)")
         $arguments += @('--data-urlencode', "quantity_received[]=$($item.Quantity)")
     }
     if ($ConfirmPhysical) { $arguments += @('--data-urlencode', 'confirm_physical_receipt=1') }
@@ -97,6 +102,7 @@ $script:php = 'C:\xampp\php\php.exe'
 $script:mysql = 'C:\xampp\mysql\bin\mysql.exe'
 $script:password = 'DonationValidation123!'
 $suffix = [Guid]::NewGuid().ToString('N').Substring(0, 12)
+$freshSpeciesName = "Kamagong-Validation-$suffix"
 $ownerUsername = "donation_owner_$suffix"
 $otherUsername = "donation_other_$suffix"
 $rpsUsername = "donation_rps_$suffix"
@@ -148,15 +154,13 @@ INSERT INTO tbl_users (fname,lname,email,contact,address,username,password,role,
     Invoke-Login $rpsUsername $cookies.rps
     Invoke-Login $emsUsername $cookies.ems
 
-    $registry = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php?transaction=$partialTransaction") -join "`n")
+    $registry = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-registry.php?transaction=$partialTransaction") -join "`n")
     Assert-Check ($registry -match [regex]::Escape($partialTransaction) -and $registry -match 'primary reference' -and $registry -match 'table-responsive') 'EMS can locate an eligible requirement by primary transaction ID in the existing responsive table design.'
-    $invalidSearch = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php?transaction=TCP-0000-000000") -join "`n")
+    $invalidSearch = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-registry.php?transaction=TCP-0000-000000") -join "`n")
     Assert-Check ($invalidSearch -match 'No matching donation requirements') 'An invalid transaction ID returns no eligible requirement.'
-    $applicantSearch = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php?applicant=Donation%20Validation&application_reference=$partialApp&donation_status=required") -join "`n")
-    Assert-Check ($applicantSearch -match [regex]::Escape($partialTransaction) -and $applicantSearch -notmatch [regex]::Escape($historyTransaction)) 'Applicant, application reference, and donation status filters are server-applied.'
-    $today = (Get-Date).ToString('yyyy-MM-dd')
-    $dateSearch = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php?transaction=$partialTransaction&date_from=$today&date_to=$today") -join "`n")
-    Assert-Check ($dateSearch -match [regex]::Escape($partialTransaction)) 'Requirement date-range filtering retains an eligible transaction in range.'
+    $applicantSearch = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-registry.php?applicant=Donation%20Validation&donation_status=required") -join "`n")
+    Assert-Check ($applicantSearch -match [regex]::Escape($partialTransaction) -and $applicantSearch -notmatch [regex]::Escape($historyTransaction)) 'Applicant name and donation status filters are server-applied.'
+    Assert-Check ($registry -notmatch 'application_reference' -and $registry -notmatch 'date_from' -and $registry -notmatch 'Requirement date from') 'The registry no longer offers application-reference or date-range search fields; transaction ID and applicant name are the only lookups.'
 
     $communityActionStatus = & curl.exe -s -o NUL -w '%{http_code}' -b $cookies.owner "$script:baseUrl/pages/ems/donation-receipt-action.php"
     $rpsActionStatus = & curl.exe -s -o NUL -w '%{http_code}' -b $cookies.rps "$script:baseUrl/pages/ems/donation-receipt-action.php"
@@ -173,13 +177,17 @@ INSERT INTO tbl_users (fname,lname,email,contact,address,username,password,role,
     Invoke-ReceiptAction $cookies.ems $partialApp $form.Csrf $form.ActionKey 'finalize' @(@{Type='Narra';Quantity='20'},@{Type='Molave';Quantity='10'}) $emsId 'PARTIAL-1' 'First partial physical receipt.' 0 $true | Out-Null
     $partialState = & $script:mysql -u root -N -B certreefy_db -e "SELECT CONCAT(a.application_status,':',a.donation_status,':',r.current_status,':',r.received_seedling_count,':',(SELECT COUNT(*) FROM tbl_permit_donation_verification_items i INNER JOIN tbl_permit_donation_verifications v ON v.id=i.donation_verification_id WHERE v.donation_requirement_id=r.id)) FROM tbl_permit_applications a INNER JOIN tbl_permit_donation_requirements r ON r.application_id=a.id WHERE a.id=$partialApp"
     Assert-Check ($partialState -eq 'awaiting_donation:partially_received:partially_received:30:2') 'A multi-species partial receipt records per-item quantities, cumulative total, and remaining incomplete state.'
-    $partialPage = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php?application_id=$partialApp") -join "`n")
-    Assert-Check ($partialPage -match 'Remaining</div><div class="fs-5 fw-semibold">20' -and $partialPage -match 'PARTIAL-1') 'EMS detail displays the remaining quantity and finalized receipt history.'
+    $partialPage = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-receipt.php?application_id=$partialApp") -join "`n")
+    Assert-Check ($partialPage -match 'Remaining</div><div class="fs-5 fw-semibold">20' -and $partialPage -match 'Narra' -and $partialPage -match 'Molave') 'EMS detail displays the remaining quantity and the finalized receipt''s species history (no separate receipt reference is shown).'
 
     $form = Get-ReceiptForm $cookies.ems $partialApp
-    Invoke-ReceiptAction $cookies.ems $partialApp $form.Csrf $form.ActionKey 'finalize' @(@{Type='Kamagong';Quantity='20'}) $emsId 'FULL-2' 'Completed the physical requirement.' 0 $true | Out-Null
+    Invoke-ReceiptAction $cookies.ems $partialApp $form.Csrf $form.ActionKey 'finalize' @(@{Type=$freshSpeciesName;Quantity='20'}) $emsId 'FULL-2' 'Completed the physical requirement.' 0 $true | Out-Null
     $fullState = & $script:mysql -u root -N -B certreefy_db -e "SELECT CONCAT(a.application_status,':',a.donation_status,':',r.current_status,':',r.received_seedling_count,':',(SELECT COUNT(*) FROM tbl_permits p WHERE p.application_id=a.id)) FROM tbl_permit_applications a INNER JOIN tbl_permit_donation_requirements r ON r.application_id=a.id WHERE a.id=$partialApp"
     Assert-Check ($fullState -eq 'awaiting_final_verification:ems_verified:ems_verified:50:0') 'A full verified receipt advances only to final RPS verification and does not create or release a permit.'
+    $freshSpeciesInventory = & $script:mysql -u root -N -B certreefy_db -e "SELECT CONCAT(id,':',available_quantity) FROM tbl_seedling_inventory WHERE common_name='$freshSpeciesName'"
+    $freshSpeciesInventoryId = [int] ($freshSpeciesInventory -split ':')[0]
+    $freshSpeciesMovement = [int] (& $script:mysql -u root -N -B certreefy_db -e "SELECT COUNT(*) FROM tbl_seedling_stock_movements WHERE inventory_id=$freshSpeciesInventoryId AND movement_type='incoming' AND quantity_delta=20 AND reason LIKE '%$partialTransaction%'")
+    Assert-Check ($freshSpeciesInventory -match ':20$' -and $freshSpeciesMovement -eq 1) 'A species typed as "Other" on the receipt is auto-encoded into the seedling inventory and credited with an incoming stock movement tied to the transaction.'
     $communityDonationView = ((& curl.exe -s -b $cookies.owner "$script:baseUrl/pages/community/permit-application.php?id=$partialApp") -join "`n")
     Assert-Check ($communityDonationView -match 'EMS Verified' -and $communityDonationView -match 'Final RPS confirmation' -and $communityDonationView -match 'Currently received</div><div class="fs-5 fw-semibold">50') 'The Community owner sees the verified total and the remaining final-RPS requirement without a release claim.'
     $notifications = [int] (& $script:mysql -u root -N -B certreefy_db -e "SELECT COUNT(*) FROM tbl_notifications WHERE entity_type='permit_application' AND entity_id=$partialApp AND notification_type='donation_verification' AND recipient_user_id IN ($ownerId,$rpsId)")
@@ -187,8 +195,8 @@ INSERT INTO tbl_users (fname,lname,email,contact,address,username,password,role,
     Assert-Check ($notifications -ge 4 -and $auditAndHistory -match '2:[4-9]') 'Partial/full verification creates Community and RPS notifications plus audit and status history records.'
 
     $verificationCountBefore = [int] (& $script:mysql -u root -N -B certreefy_db -e "SELECT COUNT(*) FROM tbl_permit_donation_verifications v INNER JOIN tbl_permit_donation_requirements r ON r.id=v.donation_requirement_id WHERE r.application_id=$partialApp")
-    $lockedPage = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php?application_id=$partialApp") -join "`n")
-    Assert-Check ($lockedPage -match 'Receipt entry is locked') 'A fully EMS-verified transaction no longer exposes receipt mutation controls.'
+    $verifiedPage = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-receipt.php?application_id=$partialApp") -join "`n")
+    Assert-Check ($verifiedPage -match 'Donation Receipt') 'A fully EMS-verified transaction still opens the receipt page (no client-side lock state); the server remains the actual authority, checked next.'
     $otherForm = Get-ReceiptForm $cookies.ems $historyApp
     Invoke-ReceiptAction $cookies.ems $partialApp $otherForm.Csrf $otherForm.ActionKey 'finalize' @(@{Type='Narra';Quantity='1'}) $emsId 'DUPLICATE-FULL' 'Duplicate verification attempt.' 0 $true | Out-Null
     $verificationCountAfter = [int] (& $script:mysql -u root -N -B certreefy_db -e "SELECT COUNT(*) FROM tbl_permit_donation_verifications v INNER JOIN tbl_permit_donation_requirements r ON r.id=v.donation_requirement_id WHERE r.application_id=$partialApp")
@@ -229,7 +237,7 @@ INSERT INTO tbl_users (fname,lname,email,contact,address,username,password,role,
 
     $form = Get-ReceiptForm $cookies.ems $flagApp
     Invoke-ReceiptAction $cookies.ems $flagApp $form.Csrf $form.ActionKey 'flag_invalid' @(@{Type='Narra';Quantity='1'}) $emsId '' 'Receipt reference could not be validated against the approved transaction.' | Out-Null
-    $flagFeedback = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php?application_id=$flagApp") -join "`n")
+    $flagFeedback = ((& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-receipt.php?application_id=$flagApp") -join "`n")
     $flagAlert = [regex]::Match($flagFeedback, '<div class="alert alert-[^"]+ alert-dismissible[^>]*>(.*?)<button', 'Singleline')
     $flagMessage = if ($flagAlert.Success) { ([regex]::Replace($flagAlert.Groups[1].Value, '<[^>]+>', '') -replace '\s+', ' ').Trim() } else { 'no flash' }
     $flagState = & $script:mysql -u root -N -B certreefy_db -e "SELECT CONCAT(a.application_status,':',a.donation_status,':',r.current_status,':',r.received_seedling_count,':',(SELECT verification_status FROM tbl_permit_donation_verifications v WHERE v.donation_requirement_id=r.id ORDER BY id DESC LIMIT 1)) FROM tbl_permit_applications a INNER JOIN tbl_permit_donation_requirements r ON r.application_id=a.id WHERE a.id=$flagApp"
@@ -250,6 +258,10 @@ finally {
     if ($script:applicationIds.Count -gt 0) {
         $appList = ($script:applicationIds -join ',')
         & $script:mysql -u root certreefy_db -e "DELETE FROM tbl_notifications WHERE entity_type='permit_application' AND entity_id IN ($appList); DELETE FROM tbl_audit_trail WHERE entity_type IN ('permit_donation_verification','permit_application') AND (entity_id IN (SELECT id FROM tbl_permit_donation_verifications WHERE donation_requirement_id IN (SELECT id FROM tbl_permit_donation_requirements WHERE application_id IN ($appList))) OR JSON_EXTRACT(details,'$.application_id') IN ($appList)); DELETE FROM tbl_permit_status_history WHERE application_id IN ($appList); DELETE FROM tbl_permit_donation_verification_items WHERE donation_verification_id IN (SELECT id FROM tbl_permit_donation_verifications WHERE donation_requirement_id IN (SELECT id FROM tbl_permit_donation_requirements WHERE application_id IN ($appList))); UPDATE tbl_permit_donation_verifications SET previous_verification_id=NULL WHERE donation_requirement_id IN (SELECT id FROM tbl_permit_donation_requirements WHERE application_id IN ($appList)); DELETE FROM tbl_permit_donation_verifications WHERE donation_requirement_id IN (SELECT id FROM tbl_permit_donation_requirements WHERE application_id IN ($appList)); DELETE FROM tbl_permit_donation_requirements WHERE application_id IN ($appList); DELETE FROM tbl_permit_decisions WHERE application_id IN ($appList); DELETE FROM tbl_permit_trees WHERE application_id IN ($appList); DELETE FROM tbl_permit_applications WHERE id IN ($appList);" 2>$null | Out-Null
+        # The donation-receipt finalize path auto-encodes new species into the
+        # inventory; the verification items referencing it are already gone
+        # (deleted above), so it's now safe to remove.
+        & $script:mysql -u root certreefy_db -e "DELETE FROM tbl_seedling_stock_movements WHERE inventory_id IN (SELECT id FROM tbl_seedling_inventory WHERE common_name='$freshSpeciesName'); DELETE FROM tbl_seedling_inventory WHERE common_name='$freshSpeciesName';" 2>$null | Out-Null
     }
     if ($userIds.Count -gt 0) {
         $userList = ($userIds -join ',')

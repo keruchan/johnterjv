@@ -779,8 +779,9 @@ function permit_expire_due_permits(PDO $pdo): array
             $message = 'Permit ' . (string) $permit['permit_number'] . ' for transaction '
                 . (string) $permit['transaction_id'] . ' expired on '
                 . date('M j, Y', strtotime((string) $permit['valid_until']))
-                . '. It cannot be extended or reactivated. If cutting was not completed, a new '
-                . 'application and transaction ID are required.';
+                . '. It cannot be extended or reactivated. If cutting was not completed, you must '
+                . 'start over with a new application; cutting trees under an expired permit is '
+                . 'considered illegal logging.';
             create_notification(
                 $pdo,
                 (int) $permit['applicant_user_id'],
@@ -869,7 +870,8 @@ function permit_notify_expiring_permits(PDO $pdo): array
                 'Permit ' . (string) $permit['permit_number'] . ' for transaction '
                     . (string) $permit['transaction_id'] . ' expires on '
                     . date('M j, Y', strtotime((string) $permit['valid_until'])) . ' (' . $daysLeft
-                    . ' day(s) left). No extension is possible; complete cutting before it lapses.',
+                    . ' day(s) left). No extension is possible; complete cutting before it lapses. '
+                    . 'Cutting after expiration is considered illegal logging and requires a new application.',
                 'permit_application',
                 $applicationId
             );

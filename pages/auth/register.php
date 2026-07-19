@@ -159,125 +159,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 
-    <style>
-        :root {
-            --certreefy-green-dark: #2E7D32;
-            --certreefy-green: #4CAF50;
-            --certreefy-green-soft: #A5D6A7;
-            --certreefy-bg: #F5F5F5;
-            --certreefy-ink: #263238;
-        }
-
-        body {
-            min-height: 100vh;
-            font-family: "Poppins", Arial, sans-serif;
-            color: var(--certreefy-ink);
-            background:
-                linear-gradient(135deg, rgba(46, 125, 50, 0.12), rgba(165, 214, 167, 0.18)),
-                var(--certreefy-bg);
-        }
-
-        .registration-shell {
-            min-height: 100vh;
-        }
-
-        .brand-mark {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
-            background: var(--certreefy-green-dark);
-            color: #fff;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            letter-spacing: 0;
-            box-shadow: 0 12px 24px rgba(46, 125, 50, 0.22);
-        }
-
-        .registration-card {
-            border: 0;
-            border-radius: 8px;
-            box-shadow: 0 18px 45px rgba(38, 50, 56, 0.12);
-        }
-
-        .section-label {
-            color: var(--certreefy-green-dark);
-            font-size: 0.78rem;
-            font-weight: 700;
-            letter-spacing: 0;
-            text-transform: uppercase;
-        }
-
-        .form-control {
-            border-color: #d7dfd8;
-            border-radius: 8px;
-            padding: 0.72rem 0.85rem;
-        }
-
-        .form-control:focus {
-            border-color: var(--certreefy-green);
-            box-shadow: 0 0 0 0.2rem rgba(76, 175, 80, 0.18);
-        }
-
-        .btn-certreefy {
-            --bs-btn-color: #fff;
-            --bs-btn-bg: var(--certreefy-green-dark);
-            --bs-btn-border-color: var(--certreefy-green-dark);
-            --bs-btn-hover-color: #fff;
-            --bs-btn-hover-bg: #256b2a;
-            --bs-btn-hover-border-color: #256b2a;
-            --bs-btn-focus-shadow-rgb: 76, 175, 80;
-            border-radius: 8px;
-            font-weight: 600;
-            padding: 0.78rem 1rem;
-        }
-
-        .login-link {
-            color: var(--certreefy-green-dark);
-            font-weight: 600;
-            text-decoration: none;
-        }
-
-        .login-link:hover {
-            color: #1b5e20;
-            text-decoration: underline;
-        }
-    </style>
+    <link rel="stylesheet" href="auth.css">
 </head>
 <body>
-    <main class="registration-shell d-flex align-items-center py-4 py-lg-5">
+    <main class="auth-shell d-flex align-items-center py-3">
         <div class="container">
             <div class="row justify-content-center">
-                <div class="col-12 col-xl-10">
-                    <div class="card registration-card">
-                        <div class="card-body p-4 p-md-5">
-                            <div class="row g-4 g-lg-5 align-items-start">
-                                <div class="col-lg-4">
-                                    <div class="d-flex align-items-center gap-3 mb-4">
-                                        <div class="brand-mark" aria-hidden="true">CT</div>
-                                        <div>
-                                            <h1 class="h4 fw-bold mb-1">CERTREEFY</h1>
-                                            <p class="small text-secondary mb-0">CENRO Sta. Cruz, Laguna</p>
-                                        </div>
-                                    </div>
+                <div class="col-12 col-lg-11 col-xl-10">
+                    <div class="card auth-card">
+                        <div class="row g-0">
+                            <div class="col-lg-5 auth-side p-4 d-flex flex-column">
+                                <div class="seal-watermark" aria-hidden="true"></div>
+                                <div class="auth-side-body">
+                                    <a href="../index.php" class="d-flex align-items-center gap-3 mb-3 text-white text-decoration-none">
+                                        <span class="brand-seal" aria-hidden="true"><i class="bi bi-tree-fill"></i></span>
+                                        <span>
+                                            <span class="brand-word d-block">CERTREEFY</span>
+                                            <span class="brand-sub d-block">Districts 3 &amp; 4, Laguna</span>
+                                        </span>
+                                    </a>
 
-                                    <p class="section-label mb-2">Community access</p>
-                                    <h2 class="h5 fw-semibold mb-3">Create your permit portal account</h2>
-                                    <p class="text-secondary mb-4">
-                                        Submitted accounts are reviewed first. Once approved, you can sign in to track requests and environmental services.
-                                    </p>
+                                    <h2 class="auth-headline mb-2">Create your community account</h2>
+                                    <p class="mb-3 opacity-75">Apply for permits, request seedlings, and report illegal logging — all in one account.</p>
 
-                                    <div class="p-3 rounded-3" style="background: rgba(165, 214, 167, 0.28);">
-                                        <p class="fw-semibold mb-1">Account status</p>
-                                        <p class="small text-secondary mb-0">New registrations are saved as community accounts with pending approval.</p>
+                                    <div class="auth-note p-2 px-3">
+                                        <p class="note-title mb-1"><i class="bi bi-shield-check me-1"></i>Account review</p>
+                                        <p class="small text-secondary mb-0">New registrations stay pending until CENRO approves them.</p>
                                     </div>
                                 </div>
+                            </div>
 
-                                <div class="col-lg-8">
+                            <div class="col-lg-7">
+                                <div class="p-4">
+                                    <p class="section-label mb-1">Community access</p>
+                                    <h2 class="auth-title mb-3">Register a permit portal account</h2>
+
                                     <?php if ($successMessage !== ''): ?>
                                         <div class="alert alert-success" role="alert">
                                             <?php echo e($successMessage); ?>
@@ -301,7 +221,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <form method="post" action="register.php" novalidate>
                                         <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_register_token']); ?>">
 
-                                        <div class="row g-3">
+                                        <div class="row g-2">
                                             <div class="col-md-4">
                                                 <label for="fname" class="form-label">First name</label>
                                                 <input type="text" class="form-control" id="fname" name="fname" value="<?php echo e($formData['fname']); ?>" maxlength="100" autocomplete="given-name" required>
@@ -327,40 +247,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                 <input type="text" class="form-control" id="contact" name="contact" value="<?php echo e($formData['contact']); ?>" maxlength="20" autocomplete="tel" required>
                                             </div>
 
-                                            <div class="col-12">
+                                            <div class="col-md-8">
                                                 <label for="address" class="form-label">Address</label>
                                                 <input type="text" class="form-control" id="address" name="address" value="<?php echo e($formData['address']); ?>" maxlength="255" autocomplete="street-address" required>
                                             </div>
 
-                                            <div class="col-md-6">
+                                            <div class="col-md-4">
                                                 <label for="username" class="form-label">Username</label>
                                                 <input type="text" class="form-control" id="username" name="username" value="<?php echo e($formData['username']); ?>" maxlength="50" autocomplete="username" required>
                                             </div>
 
                                             <div class="col-md-6">
-                                                <label class="form-label">Role</label>
-                                                <input type="text" class="form-control" value="Community applicant" disabled>
-                                            </div>
-
-                                            <div class="col-md-6">
                                                 <label for="password" class="form-label">Password</label>
-                                                <input type="password" class="form-control" id="password" name="password" minlength="8" maxlength="128" autocomplete="new-password" required>
+                                                <div class="input-affix">
+                                                    <input type="password" class="form-control" id="password" name="password" minlength="8" maxlength="128" autocomplete="new-password" placeholder="At least 8 characters" required>
+                                                    <button type="button" class="toggle-password" data-target="password" aria-label="Show password"><i class="bi bi-eye"></i></button>
+                                                </div>
                                             </div>
 
                                             <div class="col-md-6">
                                                 <label for="confirm_password" class="form-label">Confirm password</label>
-                                                <input type="password" class="form-control" id="confirm_password" name="confirm_password" minlength="8" maxlength="128" autocomplete="new-password" required>
+                                                <div class="input-affix">
+                                                    <input type="password" class="form-control" id="confirm_password" name="confirm_password" minlength="8" maxlength="128" autocomplete="new-password" required>
+                                                    <button type="button" class="toggle-password" data-target="confirm_password" aria-label="Show password"><i class="bi bi-eye"></i></button>
+                                                </div>
                                             </div>
 
-                                            <div class="col-12 mt-4">
-                                                <button type="submit" class="btn btn-certreefy w-100">Submit registration</button>
+                                            <div class="col-12 mt-2">
+                                                <button type="submit" class="btn btn-certreefy w-100"><i class="bi bi-person-plus me-1"></i> Submit registration</button>
                                             </div>
                                         </div>
                                     </form>
 
-                                    <p class="text-center text-secondary small mt-4 mb-0">
+                                    <p class="text-center text-secondary small mt-3 mb-0">
                                         Already registered?
-                                        <a href="login.php" class="login-link">Login to your account</a>
+                                        <a href="login.php" class="auth-link">Login to your account</a>
                                     </p>
                                 </div>
                             </div>
@@ -370,5 +291,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
     </main>
+
+    <script>
+        document.querySelectorAll('.toggle-password').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var input = document.getElementById(btn.dataset.target);
+                var icon = btn.querySelector('i');
+                if (input.type === 'password') {
+                    input.type = 'text';
+                    icon.classList.replace('bi-eye', 'bi-eye-slash');
+                } else {
+                    input.type = 'password';
+                    icon.classList.replace('bi-eye-slash', 'bi-eye');
+                }
+            });
+        });
+    </script>
 </body>
 </html>

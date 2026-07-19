@@ -242,3 +242,50 @@ function permit_status_label(string $status): string
 {
     return ucwords(str_replace('_', ' ', $status));
 }
+
+/**
+ * Simplified public "where is my application" tracker, collapsing the full
+ * workflow sub-statuses into 6 delivery-style steps. Returns a list of
+ * ['label' => string, 'icon' => bootstrap-icon class, 'state' => one of
+ * done|current|upcoming|failed|expired|skipped].
+ */
+function permit_status_tracker_steps(array $application): array
+{
+    $decision = (string) ($application['decision_status'] ?? 'pending');
+    $donation = (string) ($application['donation_status'] ?? 'not_required');
+    $release = (string) ($application['release_status'] ?? 'not_ready');
+    $validity = (string) ($application['validity_status'] ?? 'not_issued');
+    $declined = $decision === 'declined';
+
+    $reviewState = in_array($decision, ['pending', 'under_review', 'returned'], true) ? 'current' : 'done';
+    $decisionState = $declined ? 'failed' : ($decision === 'approved' ? 'done' : 'upcoming');
+
+    if ($declined) {
+        $donationState = 'skipped';
+        $releaseState = 'skipped';
+        $completedState = 'skipped';
+    } else {
+        $donationState = $decision !== 'approved'
+            ? 'upcoming'
+            : ($donation === 'rps_verified' ? 'done' : 'current');
+        $releaseState = $donationState !== 'done'
+            ? 'upcoming'
+            : ($release === 'released' ? 'done' : 'current');
+        $completedState = $releaseState !== 'done'
+            ? 'upcoming'
+            : match ($validity) {
+                'completed' => 'done',
+                'expired', 'closed' => 'expired',
+                default => 'current',
+            };
+    }
+
+    return [
+        ['label' => 'Submitted', 'icon' => 'bi-send-check', 'state' => 'done'],
+        ['label' => 'Under Review', 'icon' => 'bi-search', 'state' => $reviewState],
+        ['label' => $declined ? 'Declined' : 'Decision', 'icon' => $declined ? 'bi-x-circle' : 'bi-clipboard-check', 'state' => $decisionState],
+        ['label' => 'Donation Verified', 'icon' => 'bi-tree', 'state' => $donationState],
+        ['label' => 'Permit Released', 'icon' => 'bi-file-earmark-check', 'state' => $releaseState],
+        ['label' => 'Completed', 'icon' => 'bi-check-circle', 'state' => $completedState],
+    ];
+}

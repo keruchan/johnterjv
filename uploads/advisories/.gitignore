@@ -1,0 +1,4 @@
+# Runtime-uploaded announcement images are not source; keep the folder + .htaccess only.
+*
+!.gitignore
+!.htaccess

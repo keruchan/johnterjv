@@ -1,10 +1,13 @@
 <?php
 /**
  * Transactional EMS receipt and physical-verification services for permit
- * seedling donation requirements.
+ * seedling donation requirements. Finalized receipts automatically restock
+ * the seedling inventory (tbl_seedling_inventory / tbl_seedling_stock_movements)
+ * so donated seedlings become available for the seedling-request program.
  */
 
 require_once __DIR__ . '/permit_donations.php';
+require_once __DIR__ . '/seedling.php';
 
 class PermitDonationReceiptValidationException extends InvalidArgumentException
 {
@@ -86,17 +89,20 @@ function permit_donation_receipt_validate_action_key(string $actionKey): string
     return $actionKey;
 }
 
+/**
+ * Format-only validation (no database access). Each item row resolves to
+ * either an existing inventory species (inventory_choice = its numeric id)
+ * or a new one entered by hand (inventory_choice = 'other', other_name set).
+ * permit_donation_resolve_receipt_items() performs the actual inventory
+ * lookup/creation once inside the caller's transaction.
+ */
 function permit_donation_normalize_receipt_input(array $input): array
 {
     $errors = [];
-    $reference = permit_donation_scalar_value($input['receipt_reference'] ?? '');
     $receivedOn = permit_donation_scalar_value($input['received_on'] ?? '');
     $remarks = permit_donation_scalar_value($input['verification_notes'] ?? '');
     $receiverValue = permit_donation_scalar_value($input['received_by_user_id'] ?? '');
 
-    if ($reference === '' || strlen($reference) > 100) {
-        $errors[] = 'Receipt or acknowledgment reference must contain 1-100 characters.';
-    }
     $receivedDate = DateTimeImmutable::createFromFormat('!Y-m-d', $receivedOn);
     $dateErrors = DateTimeImmutable::getLastErrors();
     if (!$receivedDate
@@ -114,49 +120,59 @@ function permit_donation_normalize_receipt_input(array $input): array
         $errors[] = 'Verification remarks must not exceed 1000 characters.';
     }
 
-    $types = $input['seedling_type'] ?? [];
+    $choices = $input['inventory_id'] ?? [];
+    $otherNames = $input['other_species_name'] ?? [];
     $quantities = $input['quantity_received'] ?? [];
-    if (!is_array($types) || !is_array($quantities)
-        || count($types) !== count($quantities)
-        || count($types) < 1
-        || count($types) > 50) {
+    if (!is_array($choices) || !is_array($quantities)
+        || count($choices) !== count($quantities)
+        || count($choices) < 1
+        || count($choices) > 50) {
         $errors[] = 'Provide between 1 and 50 complete seedling item rows.';
-        $types = [];
+        $choices = [];
         $quantities = [];
     }
 
     $items = [];
-    $seenTypes = [];
+    $seenSpecies = [];
     $total = 0;
-    foreach ($types as $index => $typeValue) {
+    foreach ($choices as $index => $choiceValue) {
         $quantityInput = $quantities[$index] ?? null;
-        if (!is_scalar($typeValue) || !is_scalar($quantityInput)) {
+        if (!is_scalar($choiceValue) || !is_scalar($quantityInput)) {
             $errors[] = 'Seedling item ' . ($index + 1) . ' contains invalid values.';
             continue;
         }
-        $type = permit_donation_scalar_value($typeValue);
+        $choice = permit_donation_scalar_value($choiceValue);
         $quantityValue = permit_donation_scalar_value($quantityInput);
         $rowNumber = $index + 1;
-        if ($type === '' || strlen($type) > 150) {
-            $errors[] = 'Seedling item ' . $rowNumber . ' requires a type or species of 1-150 characters.';
+
+        $isOther = $choice === 'other';
+        $otherName = $isOther ? permit_donation_scalar_value($otherNames[$index] ?? '') : '';
+        if ($isOther) {
+            if ($otherName === '' || strlen($otherName) > 150) {
+                $errors[] = 'Seedling item ' . $rowNumber . ' needs a species name of 1-150 characters.';
+            }
+        } elseif (!ctype_digit($choice) || (int) $choice < 1) {
+            $errors[] = 'Seedling item ' . $rowNumber . ' requires a selected species.';
         }
         if (!ctype_digit($quantityValue)
             || (int) $quantityValue < 1
             || (int) $quantityValue > 1000000) {
             $errors[] = 'Seedling item ' . $rowNumber . ' quantity must be a whole number greater than zero.';
         }
-        $normalizedType = strtolower($type);
-        if ($type !== '' && isset($seenTypes[$normalizedType])) {
-            $errors[] = 'Combine duplicate seedling types into one item row.';
+
+        $dedupeKey = $isOther ? 'other:' . strtolower($otherName) : 'id:' . $choice;
+        if (($isOther ? $otherName !== '' : $choice !== '') && isset($seenSpecies[$dedupeKey])) {
+            $errors[] = 'Combine duplicate seedling species into one item row.';
         }
-        if ($type !== '') {
-            $seenTypes[$normalizedType] = true;
-        }
-        if ($type !== '' && ctype_digit($quantityValue) && (int) $quantityValue > 0) {
+        $seenSpecies[$dedupeKey] = true;
+
+        $rowValid = $isOther ? $otherName !== '' : (ctype_digit($choice) && (int) $choice > 0);
+        if ($rowValid && ctype_digit($quantityValue) && (int) $quantityValue > 0) {
             $quantity = (int) $quantityValue;
             $total += $quantity;
             $items[] = [
-                'seedling_type' => $type,
+                'inventory_choice' => $isOther ? 'other' : $choice,
+                'other_name' => $isOther ? $otherName : null,
                 'quantity_received' => $quantity,
             ];
         }
@@ -170,7 +186,6 @@ function permit_donation_normalize_receipt_input(array $input): array
     }
 
     return [
-        'receipt_reference' => $reference,
         'received_at' => $receivedDate->format('Y-m-d 00:00:00'),
         'received_on' => $receivedDate->format('Y-m-d'),
         'received_by_user_id' => (int) $receiverValue,
@@ -178,6 +193,89 @@ function permit_donation_normalize_receipt_input(array $input): array
         'items' => $items,
         'seedlings_received' => $total,
     ];
+}
+
+/** Finds an active species by name, or creates one (auto-encoding it into the inventory). */
+function permit_donation_find_or_create_species(PDO $pdo, int $actorUserId, string $name): array
+{
+    $find = $pdo->prepare('SELECT id, common_name FROM tbl_seedling_inventory WHERE common_name = :name LIMIT 1');
+    $find->execute([':name' => $name]);
+    $existing = $find->fetch();
+    if ($existing) {
+        return [(int) $existing['id'], (string) $existing['common_name']];
+    }
+
+    $insert = $pdo->prepare(
+        'INSERT INTO tbl_seedling_inventory (common_name, available_quantity, low_stock_threshold, created_by_user_id)
+         VALUES (:name, 0, 0, :actor)'
+    );
+    try {
+        $insert->execute([':name' => $name, ':actor' => $actorUserId]);
+    } catch (PDOException $e) {
+        if ((int) $e->getCode() === 23000) {
+            $find->execute([':name' => $name]);
+            $existing = $find->fetch();
+            if ($existing) {
+                return [(int) $existing['id'], (string) $existing['common_name']];
+            }
+        }
+        throw $e;
+    }
+    $inventoryId = (int) $pdo->lastInsertId();
+    record_audit_event(
+        $pdo,
+        $actorUserId,
+        'seedling',
+        'seedling_species_added',
+        'seedling_inventory',
+        $inventoryId,
+        'Added a seedling species to the inventory (auto-encoded from a permit donation receipt).',
+        ['common_name' => $name]
+    );
+
+    return [$inventoryId, $name];
+}
+
+/** Resolves each normalized item to a real inventory species, creating new ones as needed. */
+function permit_donation_resolve_receipt_items(PDO $pdo, int $actorUserId, array $rawItems): array
+{
+    $resolved = [];
+    $seenInventoryIds = [];
+    foreach ($rawItems as $rawItem) {
+        if ($rawItem['inventory_choice'] === 'other') {
+            [$inventoryId, $speciesName] = permit_donation_find_or_create_species(
+                $pdo,
+                $actorUserId,
+                (string) $rawItem['other_name']
+            );
+        } else {
+            $inventoryId = (int) $rawItem['inventory_choice'];
+            $stmt = $pdo->prepare(
+                'SELECT id, common_name FROM tbl_seedling_inventory WHERE id = :id AND is_active = 1 LIMIT 1'
+            );
+            $stmt->execute([':id' => $inventoryId]);
+            $species = $stmt->fetch();
+            if (!$species) {
+                throw new PermitDonationReceiptValidationException(
+                    'One of the selected seedling species is unavailable. Refresh the page and try again.'
+                );
+            }
+            $speciesName = (string) $species['common_name'];
+        }
+        if (isset($seenInventoryIds[$inventoryId])) {
+            throw new PermitDonationReceiptValidationException(
+                'Combine duplicate seedling species into one item row.'
+            );
+        }
+        $seenInventoryIds[$inventoryId] = true;
+        $resolved[] = [
+            'inventory_id' => $inventoryId,
+            'seedling_type' => $speciesName,
+            'quantity_received' => (int) $rawItem['quantity_received'],
+        ];
+    }
+
+    return $resolved;
 }
 
 function permit_donation_requirement_for_ems_update(
@@ -435,7 +533,7 @@ function permit_donation_insert_receipt_version(
             (:donation_requirement_id, :previous_verification_id, :receipt_group_key,
              :action_key, :version_number, :received_by_user_id, :verified_by_user_id,
              \'draft\', 1, 0, :seedlings_received,
-             :receipt_reference, :received_at, :verification_notes)'
+             NULL, :received_at, :verification_notes)'
     );
     $insert->execute([
         ':donation_requirement_id' => (int) $requirement['id'],
@@ -446,21 +544,21 @@ function permit_donation_insert_receipt_version(
         ':received_by_user_id' => (int) $receipt['received_by_user_id'],
         ':verified_by_user_id' => $actorUserId,
         ':seedlings_received' => (int) $receipt['seedlings_received'],
-        ':receipt_reference' => (string) $receipt['receipt_reference'],
         ':received_at' => (string) $receipt['received_at'],
         ':verification_notes' => $receipt['verification_notes'],
     ]);
     $verificationId = (int) $pdo->lastInsertId();
     $itemInsert = $pdo->prepare(
         'INSERT INTO tbl_permit_donation_verification_items
-            (donation_verification_id, seedling_type, quantity_received)
+            (donation_verification_id, seedling_type, inventory_id, quantity_received)
          VALUES
-            (:donation_verification_id, :seedling_type, :quantity_received)'
+            (:donation_verification_id, :seedling_type, :inventory_id, :quantity_received)'
     );
     foreach ($receipt['items'] as $item) {
         $itemInsert->execute([
             ':donation_verification_id' => $verificationId,
             ':seedling_type' => (string) $item['seedling_type'],
+            ':inventory_id' => (int) $item['inventory_id'],
             ':quantity_received' => (int) $item['quantity_received'],
         ]);
     }
@@ -665,6 +763,7 @@ function record_permit_donation_receipt(
         }
 
         $receipt = permit_donation_normalize_receipt_input($input);
+        $receipt['items'] = permit_donation_resolve_receipt_items($pdo, $actorUserId, $receipt['items']);
         permit_donation_validate_receiver($pdo, (int) $receipt['received_by_user_id']);
         if ($action === 'finalize'
             && permit_donation_scalar_value($input['confirm_physical_receipt'] ?? '') !== '1') {
@@ -781,6 +880,22 @@ function record_permit_donation_receipt(
             throw new RuntimeException('The donation total changed before finalization completed.');
         }
         $requirement['received_seedling_count'] = $cumulativeTotal;
+
+        // Physical seedlings received restock the seedling-request inventory
+        // automatically, whether this batch completes the requirement or not.
+        foreach ($receipt['items'] as $item) {
+            seedling_apply_stock_movement(
+                $pdo,
+                (int) $item['inventory_id'],
+                $actorUserId,
+                'incoming',
+                (int) $item['quantity_received'],
+                null,
+                'Seedling donation receipt for permit ' . (string) $requirement['transaction_id']
+                    . ' (application #' . (int) $requirement['application_id'] . ').'
+            );
+        }
+
         $statusRemarks = $verificationStatus === 'ems_verified'
             ? 'EMS verified a cumulative physical receipt of ' . $cumulativeTotal
                 . ' seedlings against the requirement of ' . $requiredTotal . '.'
@@ -816,7 +931,6 @@ function record_permit_donation_receipt(
                 'application_id' => $applicationId,
                 'transaction_id' => (string) $requirement['transaction_id'],
                 'receiving_personnel_user_id' => (int) $receipt['received_by_user_id'],
-                'receipt_reference' => (string) $receipt['receipt_reference'],
                 'batch_total' => (int) $receipt['seedlings_received'],
                 'cumulative_total' => $cumulativeTotal,
                 'required_total' => $requiredTotal,
@@ -902,7 +1016,7 @@ function permit_list_donation_receipts_for_ems(
     $receiptIds = array_map(static fn (array $row): int => (int) $row['id'], $receipts);
     $placeholders = implode(',', array_fill(0, count($receiptIds), '?'));
     $itemsStmt = $pdo->prepare(
-        'SELECT donation_verification_id, seedling_type, quantity_received
+        'SELECT donation_verification_id, seedling_type, inventory_id, quantity_received
          FROM tbl_permit_donation_verification_items
          WHERE donation_verification_id IN (' . $placeholders . ')
          ORDER BY id'

@@ -1,0 +1,5 @@
+# Public announcement images only. Never execute uploaded content here.
+php_flag engine off
+<FilesMatch "\.(php|php3|php4|php5|phtml|phar|cgi|pl|asp|aspx|jsp|sh)$">
+    Require all denied
+</FilesMatch>

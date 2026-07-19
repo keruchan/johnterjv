@@ -19,12 +19,18 @@ function certreefy_permission_permit_decision(): string
     return 'permit_decision';
 }
 
+function certreefy_permission_illegal_logging_processing(): string
+{
+    return 'illegal_logging_processing';
+}
+
 function certreefy_supported_permissions(): array
 {
     return [
         certreefy_permission_original_document_verification(),
         certreefy_permission_site_inspection(),
         certreefy_permission_permit_decision(),
+        certreefy_permission_illegal_logging_processing(),
     ];
 }
 

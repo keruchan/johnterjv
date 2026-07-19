@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../includes/permit_inspections.php';
 require_once __DIR__ . '/../../includes/permit_decisions.php';
 require_once __DIR__ . '/../../includes/permit_donation_view.php';
 require_once __DIR__ . '/../../includes/permit_release.php';
+require_once __DIR__ . '/../../includes/area_management.php';
 require_once __DIR__ . '/../../includes/view.php';
 
 require_roles($pdo, ['rps', 'superadmin']);
@@ -168,6 +169,11 @@ $defaultInspectionLocation = implode(', ', array_filter([
     (string) $application['municipality'],
     (string) $application['province'],
 ]));
+try {
+    $zoneMapFeatures = area_zone_map_features($pdo);
+} catch (PDOException $e) {
+    $zoneMapFeatures = [];
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -180,9 +186,10 @@ $defaultInspectionLocation = implode(', ', array_filter([
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=6">
 </head>
-<body>
+<body data-bs-spy="scroll" data-bs-target="#pageSubNav" data-bs-offset="130" tabindex="0">
     <a href="#main-content" class="skip-link">Skip to main content</a>
     <div class="app-shell">
         <?php render_certreefy_navigation($currentRole, 'permit_applications', $navigationPermissions); ?>
@@ -191,10 +198,19 @@ $defaultInspectionLocation = implode(', ', array_filter([
                 <div class="seal-watermark" aria-hidden="true"></div>
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
                     <div><div class="eyebrow">RPS Permit Review &middot; <?php echo e($todayLabel); ?></div><h1 class="page-title"><?php echo e((string) $application['transaction_id']); ?></h1><p class="meta-copy mb-0">Application information, requirements, inspection, review, and decision history.</p></div>
-                    <div class="d-flex flex-wrap align-items-center gap-2"><span class="officer-chip"><span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span><?php echo e($displayName); ?></span><form method="post" action="../auth/logout.php"><input type="hidden" name="csrf_token" value="<?php echo e((string) ($_SESSION['csrf_logout_token'] ?? '')); ?>"><button type="submit" class="btn-logout-outline"><i class="bi bi-box-arrow-right"></i> Logout</button></form></div>
+                    <div class="d-flex flex-wrap align-items-center gap-2"><?php render_certreefy_notification_bell('header'); ?><span class="officer-chip"><span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span><?php echo e($displayName); ?></span><form method="post" action="../auth/logout.php"><input type="hidden" name="csrf_token" value="<?php echo e((string) ($_SESSION['csrf_logout_token'] ?? '')); ?>"><button type="submit" class="btn-logout-outline"><i class="bi bi-box-arrow-right"></i> Logout</button></form></div>
                 </div>
                 <svg class="ridge-divider" viewBox="0 0 1200 20" preserveAspectRatio="none" aria-hidden="true"><path d="M0 14 Q150 2 300 12 T600 10 T900 13 T1200 8" fill="none" stroke="#a9c4ac" stroke-width="2"/></svg>
             </section>
+
+            <nav id="pageSubNav" class="page-subnav" aria-label="Jump to a section on this page">
+                <a class="page-subnav-link" href="#overview"><i class="bi bi-speedometer2"></i> Overview</a>
+                <?php if ($canDecideApplications && is_array($decisionReadiness)): ?><a class="page-subnav-link" href="#decision-review"><i class="bi bi-clipboard-check"></i> Decision</a><?php endif; ?>
+                <a class="page-subnav-link" href="#release-workflow"><i class="bi bi-tree"></i> Donation &amp; Release</a>
+                <a class="page-subnav-link" href="#trees"><i class="bi bi-list-check"></i> Tree Records</a>
+                <a class="page-subnav-link" href="#inspection"><i class="bi bi-geo-alt"></i> Inspection</a>
+                <?php if ($canViewDocuments): ?><a class="page-subnav-link" href="#documents"><i class="bi bi-folder2-open"></i> Documents</a><?php endif; ?>
+            </nav>
 
             <?php if (is_array($reviewFlash)): ?><div class="alert alert-<?php echo ($reviewFlash['type'] ?? '') === 'success' ? 'success' : 'danger'; ?>" role="alert"><?php echo e((string) ($reviewFlash['message'] ?? 'The review could not be completed.')); ?></div><?php endif; ?>
             <?php if (is_array($originalReviewFlash)): ?><div class="alert alert-<?php echo ($originalReviewFlash['type'] ?? '') === 'success' ? 'success' : 'danger'; ?>" role="alert"><?php echo e((string) ($originalReviewFlash['message'] ?? 'The original verification could not be completed.')); ?></div><?php endif; ?>
@@ -202,7 +218,7 @@ $defaultInspectionLocation = implode(', ', array_filter([
             <?php if (is_array($decisionFlash)): ?><div class="alert alert-<?php echo ($decisionFlash['type'] ?? '') === 'success' ? 'success' : 'danger'; ?>" role="alert"><?php echo e((string) ($decisionFlash['message'] ?? 'The review action could not be completed.')); ?></div><?php endif; ?>
             <?php if (is_array($releaseFlash)): ?><div class="alert alert-<?php echo ($releaseFlash['type'] ?? '') === 'success' ? 'success' : 'danger'; ?>" role="alert"><?php echo e((string) ($releaseFlash['message'] ?? 'The release action could not be completed.')); ?></div><?php endif; ?>
 
-            <section class="row g-3 mb-3">
+            <section class="row g-3 mb-3 page-anchor-section" id="overview">
                 <div class="col-xl-8">
                     <div class="docket-panel h-100">
                         <div class="section-heading"><h2>Application Summary</h2><span class="section-note">Read-only</span></div>
@@ -213,6 +229,12 @@ $defaultInspectionLocation = implode(', ', array_filter([
                             <div class="col-md-6"><div class="small text-secondary">Classification</div><div class="fw-semibold"><?php echo e(permit_status_label((string) $application['property_classification'])); ?></div></div>
                             <div class="col-12"><div class="small text-secondary">Property location</div><div class="fw-semibold"><?php echo e(implode(', ', array_filter([(string) $application['property_address'], (string) $application['barangay'], (string) $application['municipality'], (string) $application['province']]))); ?></div></div>
                             <div class="col-12"><div class="small text-secondary">Purpose of cutting</div><div><?php echo e((string) $application['cutting_purpose']); ?></div></div>
+                            <?php if ($application['latitude'] !== null && $application['longitude'] !== null): ?>
+                                <div class="col-12">
+                                    <div class="small text-secondary mb-1">Site map for area visitation <span class="text-muted">(managed zones overlaid for reference)</span></div>
+                                    <div id="propertySiteMap" class="geo-map" role="img" aria-label="Map of the application property location"></div>
+                                </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -232,13 +254,13 @@ $defaultInspectionLocation = implode(', ', array_filter([
             </section>
 
             <?php if ($canDecideApplications && is_array($decisionReadiness)): ?>
-            <section class="docket-panel mb-3" id="decision-review" aria-labelledby="decision-review-heading">
+            <section class="docket-panel mb-3 page-anchor-section" id="decision-review" aria-labelledby="decision-review-heading">
                 <div class="section-heading d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
-                    <div><h2 id="decision-review-heading">RPS Review &amp; Decision</h2><span class="section-note">Decision authority remains with authorized RPS personnel</span></div>
+                    <div><h2 id="decision-review-heading">RPS Review &amp; Decision</h2><span class="section-note">RPS decision authority only</span></div>
                     <span class="badge <?php echo e(permit_decision_event_badge((string) $application['decision_status'])); ?>"><?php echo e(permit_status_label((string) $application['decision_status'])); ?></span>
                 </div>
-                <div class="alert alert-light border" role="note"><i class="bi bi-shield-check me-1"></i>Approval records the RPS decision and a configured seedling donation requirement. It does not release the final permit.</div>
-                <?php if ($decisionLockReason !== null): ?><div class="alert alert-light border"><i class="bi bi-lock me-1"></i><?php echo e($decisionLockReason); ?> Existing records remain read-only.</div><?php endif; ?>
+                <div class="alert alert-light border" role="note"><i class="bi bi-shield-check me-1"></i>Approval logs the decision and sets the donation requirement — it doesn't release the permit.</div>
+                <?php if ($decisionLockReason !== null): ?><div class="alert alert-light border"><i class="bi bi-lock me-1"></i><?php echo e($decisionLockReason); ?> Records stay read-only.</div><?php endif; ?>
 
                 <div class="row g-3 mb-4">
                     <div class="col-lg-7">
@@ -297,12 +319,12 @@ $defaultInspectionLocation = implode(', ', array_filter([
             </section>
             <?php endif; ?>
 
-            <section class="docket-panel mb-3" id="release-workflow" aria-labelledby="release-workflow-heading">
+            <section class="docket-panel mb-3 page-anchor-section" id="release-workflow" aria-labelledby="release-workflow-heading">
                 <div class="section-heading d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
                     <div><h2 id="release-workflow-heading">Donation Confirmation, Release &amp; Validity</h2><span class="section-note">Final RPS confirmation, signed-permit release, and cutting completion</span></div>
                     <span class="badge <?php echo $validitySnapshot['is_expired'] || (string) $application['validity_status'] === 'expired' ? 'text-bg-danger' : ((string) $application['validity_status'] === 'active' ? 'text-bg-success' : 'text-bg-light border'); ?>"><?php echo e(permit_status_label((string) $application['validity_status'])); ?></span>
                 </div>
-                <div class="alert alert-light border" role="note"><i class="bi bi-shield-check me-1"></i>Permit validity is a fixed <?php echo (int) $durationBounds['min']; ?>&ndash;<?php echo (int) $durationBounds['max']; ?> day term with no extension and no reactivation. An expired permit whose cutting was not completed requires a new application and transaction ID.</div>
+                <div class="alert alert-light border" role="note"><i class="bi bi-shield-check me-1"></i>Fixed <?php echo (int) $durationBounds['min']; ?>&ndash;<?php echo (int) $durationBounds['max']; ?>-day term — no extension or reactivation. If it expires before cutting is done, a new application is needed.</div>
 
                 <?php if ($releaseRecord !== null): ?>
                     <div class="row g-3 mb-3">
@@ -327,7 +349,7 @@ $defaultInspectionLocation = implode(', ', array_filter([
                             </div>
                             <a class="btn btn-sm btn-outline-secondary" href="permit-signed-download.php?id=<?php echo $applicationId; ?>"><i class="bi bi-download"></i> Download signed permit<?php echo !empty($releaseRecord['permit_file_original_name']) ? ' (' . e((string) $releaseRecord['permit_file_original_name']) . ')' : ''; ?></a>
                         <?php else: ?>
-                            <p class="small text-secondary mb-2"><i class="bi bi-info-circle me-1"></i>No signed permit scan has been recorded yet. Uploading a scan is a document record and does not by itself release the permit.</p>
+                            <p class="small text-secondary mb-2"><i class="bi bi-info-circle me-1"></i>No signed scan yet. Uploading one is just a record — it doesn't release the permit.</p>
                         <?php endif; ?>
                         <?php if ($canDecideApplications): ?>
                             <form method="post" action="permit-signed-upload-action.php" class="row g-3 mt-1" enctype="multipart/form-data">
@@ -378,7 +400,7 @@ $defaultInspectionLocation = implode(', ', array_filter([
                     <?php if ((string) $application['application_status'] === 'awaiting_final_verification' && (string) $application['donation_status'] === 'ems_verified'): ?>
                         <div class="border rounded p-3 mb-3">
                             <h3 class="h6"><i class="bi bi-patch-check me-1"></i>Confirm seedling donation compliance</h3>
-                            <p class="small text-secondary">EMS has verified the physical seedling receipt. Confirm compliance to make this application ready for permit preparation and release.</p>
+                            <p class="small text-secondary">EMS verified the physical receipt. Confirm to proceed to permit preparation and release.</p>
                             <form method="post" action="permit-final-verification-action.php" class="row g-2 align-items-end">
                                 <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_release_token']); ?>"><input type="hidden" name="application_id" value="<?php echo $applicationId; ?>">
                                 <div class="col-md-8"><label class="form-label" for="finalVerifyRemarks">Confirmation remarks (optional)</label><input class="form-control" id="finalVerifyRemarks" type="text" name="remarks" maxlength="500"></div>
@@ -388,7 +410,7 @@ $defaultInspectionLocation = implode(', ', array_filter([
                     <?php elseif ((string) $application['application_status'] === 'ready_for_release' && (string) $application['release_status'] === 'preparing'): ?>
                         <div class="border rounded p-3 mb-3">
                             <h3 class="h6"><i class="bi bi-file-earmark-medical me-1"></i>Prepare &amp; release signed permit</h3>
-                            <p class="small text-secondary">Enter the exact approved cutting duration. The expiration date is derived from the physical release date and cannot be extended later.</p>
+                            <p class="small text-secondary">Enter the approved cutting duration. Expiration is set from the release date and can't be extended.</p>
                             <form method="post" action="permit-release-action.php" class="row g-3">
                                 <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_release_token']); ?>"><input type="hidden" name="application_id" value="<?php echo $applicationId; ?>">
                                 <div class="col-md-4"><label class="form-label" for="approvedDurationDays">Approved duration (days)</label><input class="form-control" id="approvedDurationDays" type="number" name="approved_duration_days" min="<?php echo (int) $durationBounds['min']; ?>" max="<?php echo (int) $durationBounds['max']; ?>" value="<?php echo (int) $durationBounds['default']; ?>" required><div class="form-text"><?php echo (int) $durationBounds['min']; ?>&ndash;<?php echo (int) $durationBounds['max']; ?> days; enforced on the server.</div></div>
@@ -400,7 +422,7 @@ $defaultInspectionLocation = implode(', ', array_filter([
                     <?php elseif ((string) $application['validity_status'] === 'active' && (string) $application['application_status'] === 'released' && $cuttingCompletion === null): ?>
                         <div class="border rounded p-3 mb-3">
                             <h3 class="h6"><i class="bi bi-tree me-1"></i>Record cutting completion</h3>
-                            <p class="small text-secondary">Record the actual cutting outcome while the permit is active. This closes the permit transaction as completed.</p>
+                            <p class="small text-secondary">Record the cutting outcome while the permit is active — this closes the transaction.</p>
                             <form method="post" action="permit-completion-action.php" class="row g-3" enctype="multipart/form-data">
                                 <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_release_token']); ?>"><input type="hidden" name="application_id" value="<?php echo $applicationId; ?>">
                                 <div class="col-md-3"><label class="form-label" for="completionStatus">Completion status</label><select class="form-select" id="completionStatus" name="completion_status" required><option value="completed">Completed</option><option value="partially_completed">Partially completed</option></select></div>
@@ -417,24 +439,24 @@ $defaultInspectionLocation = implode(', ', array_filter([
 
                 <?php if ($releaseRecord === null && (string) $application['validity_status'] === 'not_issued'
                     && !in_array((string) $application['application_status'], ['awaiting_final_verification', 'ready_for_release'], true)): ?>
-                    <p class="text-secondary mb-0">No permit has been released yet. Release becomes available after EMS donation verification and RPS donation-compliance confirmation.</p>
+                    <p class="text-secondary mb-0">No permit released yet — available after EMS donation verification and RPS compliance confirmation.</p>
                 <?php endif; ?>
             </section>
 
-            <section class="docket-panel mb-3" aria-labelledby="trees-heading">
+            <section class="docket-panel mb-3 page-anchor-section" id="trees" aria-labelledby="trees-heading">
                 <div class="section-heading"><h2 id="trees-heading">Tree Records</h2><span class="section-note"><?php echo count($trees); ?> record<?php echo count($trees) === 1 ? '' : 's'; ?></span></div>
                 <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Common name</th><th>Scientific name</th><th>Quantity</th><th>Diameter</th><th>Height</th></tr></thead><tbody>
                     <?php foreach ($trees as $tree): ?><tr><td><?php echo e((string) $tree['common_name']); ?></td><td><?php echo e((string) ($tree['scientific_name'] ?? '-')); ?></td><td><?php echo e((string) $tree['quantity']); ?></td><td><?php echo $tree['diameter_cm'] !== null ? e((string) $tree['diameter_cm']) . ' cm' : '-'; ?></td><td><?php echo $tree['estimated_height_m'] !== null ? e((string) $tree['estimated_height_m']) . ' m' : '-'; ?></td></tr><?php endforeach; ?>
                 </tbody></table></div>
             </section>
 
-            <section class="docket-panel mb-3" id="inspection" aria-labelledby="inspection-heading">
+            <section class="docket-panel mb-3 page-anchor-section" id="inspection" aria-labelledby="inspection-heading">
                 <div class="section-heading d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
                     <div><h2 id="inspection-heading">Site Inspection &amp; Tree Verification</h2><span class="section-note">Append-only scheduling and findings history</span></div>
                     <span class="badge <?php echo e(permit_inspection_status_badge((string) $application['inspection_status'])); ?>"><?php echo e(permit_inspection_status_label((string) $application['inspection_status'])); ?></span>
                 </div>
-                <div class="alert alert-light border" role="note"><i class="bi bi-info-circle me-1"></i>A completed inspection is evidence for the later RPS decision. Passing this inspection does not approve the permit.</div>
-                <?php if ($inspectionLockReason !== null): ?><div class="alert alert-light border"><i class="bi bi-lock me-1"></i><?php echo e($inspectionLockReason); ?> Existing inspection history remains available.</div><?php endif; ?>
+                <div class="alert alert-light border" role="note"><i class="bi bi-info-circle me-1"></i>Feeds the RPS decision — passing inspection doesn't approve the permit.</div>
+                <?php if ($inspectionLockReason !== null): ?><div class="alert alert-light border"><i class="bi bi-lock me-1"></i><?php echo e($inspectionLockReason); ?> History stays available.</div><?php endif; ?>
 
                 <?php if ($canManageInspections && $inspectionLockReason === null): ?>
                     <div class="d-flex flex-wrap gap-2 mb-4">
@@ -495,10 +517,10 @@ $defaultInspectionLocation = implode(', ', array_filter([
             </section>
 
             <?php if ($canViewDocuments): ?>
-            <section class="docket-panel" id="documents" aria-labelledby="documents-heading">
+            <section class="docket-panel page-anchor-section" id="documents" aria-labelledby="documents-heading">
                 <div class="section-heading"><h2 id="documents-heading">Permit Document Review</h2><span class="section-note">Scans and originals remain separate</span></div>
-                <div class="alert alert-warning" role="note"><i class="bi bi-exclamation-triangle me-1"></i>Online scan acceptance does not verify an original hardcopy or wet-ink signature. Original decisions below are stored as separate, append-only verification records and never approve the application.</div>
-                <?php if ($reviewLockReason !== null): ?><div class="alert alert-light border"><i class="bi bi-lock me-1"></i><?php echo e($reviewLockReason); ?> Downloads and verification history remain available.</div><?php endif; ?>
+                <div class="alert alert-warning" role="note"><i class="bi bi-exclamation-triangle me-1"></i>Accepting the scan doesn't verify the original hardcopy or wet-ink signature. Original-document decisions below are separate and never approve the application.</div>
+                <?php if ($reviewLockReason !== null): ?><div class="alert alert-light border"><i class="bi bi-lock me-1"></i><?php echo e($reviewLockReason); ?> Downloads and history stay available.</div><?php endif; ?>
                 <div class="row g-3 mb-4">
                     <div class="col-lg-6"><div class="border rounded p-3 h-100"><div class="d-flex justify-content-between small mb-1"><span>Required digital scans accepted</span><span class="fw-semibold"><?php echo $acceptedCount; ?> of <?php echo $requiredCount; ?></span></div><div class="progress" role="progressbar" aria-label="Required online scans" aria-valuenow="<?php echo $progress; ?>" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: <?php echo $progress; ?>%"><?php echo $progress; ?>%</div></div></div></div>
                     <div class="col-lg-6"><div class="border rounded p-3 h-100"><div class="d-flex justify-content-between small mb-1"><span>Required originals verified</span><span class="fw-semibold"><?php echo (int) $originalProgress['verified']; ?> of <?php echo (int) $originalProgress['required']; ?></span></div><div class="progress" role="progressbar" aria-label="Required original documents" aria-valuenow="<?php echo (int) $originalProgress['percent']; ?>" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: <?php echo (int) $originalProgress['percent']; ?>%"><?php echo (int) $originalProgress['percent']; ?>%</div></div></div></div>
@@ -543,7 +565,7 @@ $defaultInspectionLocation = implode(', ', array_filter([
                                     <td class="text-end">
                                         <div class="d-flex flex-wrap justify-content-end gap-1">
                                             <?php if ($document !== null): ?><a class="btn btn-sm btn-outline-secondary" href="permit-document-download.php?id=<?php echo e((string) $document['id']); ?>"><i class="bi bi-download"></i> Download</a><?php endif; ?>
-                                            <?php if ($document !== null && $reviewLockReason === null && $currentRole === 'rps'): ?><button type="button" class="btn btn-sm btn-outline-secondary review-document" data-bs-toggle="modal" data-bs-target="#reviewDocumentModal" data-document-id="<?php echo e((string) $document['id']); ?>" data-document-name="<?php echo e((string) $document['original_filename']); ?>" data-current-status="<?php echo e((string) $document['verification_status']); ?>"><i class="bi bi-clipboard-check"></i> Online review</button><?php endif; ?>
+                                            <?php if ($document !== null && $reviewLockReason === null && $currentRole === 'rps'): ?><button type="button" class="btn btn-sm btn-outline-primary review-document" data-bs-toggle="modal" data-bs-target="#reviewDocumentModal" data-document-id="<?php echo e((string) $document['id']); ?>" data-document-name="<?php echo e((string) $document['original_filename']); ?>" data-current-status="<?php echo e((string) $document['verification_status']); ?>"><i class="bi bi-clipboard-check"></i> Online review</button><?php endif; ?>
                                             <?php if ($canReviewOriginals && $reviewLockReason === null): ?><button type="button" class="btn btn-sm btn-certreefy verify-original" data-bs-toggle="modal" data-bs-target="#verifyOriginalModal" data-document-type="<?php echo e($type); ?>" data-document-id="<?php echo e((string) ($document['id'] ?? '')); ?>" data-document-label="<?php echo e((string) $definition['label']); ?>" data-original-received="<?php echo $original !== null ? (int) $original['original_received'] : 0; ?>" data-received-on="<?php echo e((string) ($original['original_received_on'] ?? '')); ?>" data-received-by="<?php echo e((string) ($original['received_by_user_id'] ?? $userId)); ?>" data-wet-ink-required="<?php echo $original !== null ? (int) $original['wet_ink_required'] : 1; ?>" data-wet-ink-verified="<?php echo $original !== null ? (int) $original['wet_ink_verified'] : 0; ?>" data-scan-compared="<?php echo $original !== null ? (int) $original['scan_compared_with_original'] : 0; ?>" data-review-status="<?php echo e((string) ($original['review_status'] ?? 'pending')); ?>" data-review-notes="<?php echo e((string) ($original['review_notes'] ?? '')); ?>"><i class="bi bi-file-earmark-check"></i> Verify original</button><?php endif; ?>
                                         </div>
                                     </td>
@@ -625,6 +647,7 @@ $defaultInspectionLocation = implode(', ', array_filter([
                     <div class="col-12"><label class="form-label" for="inspectionLocation">Inspection location</label><textarea class="form-control" id="inspectionLocation" name="inspection_location" rows="2" maxlength="500" required><?php echo e((string) ($latestInspection['inspection_location'] ?? $defaultInspectionLocation)); ?></textarea></div>
                     <div class="col-md-6"><label class="form-label" for="inspectionLatitude">Latitude</label><input class="form-control" id="inspectionLatitude" type="number" name="latitude" min="-90" max="90" step="0.0000001" value="<?php echo e((string) ($latestInspection['latitude'] ?? $application['latitude'] ?? '')); ?>"></div>
                     <div class="col-md-6"><label class="form-label" for="inspectionLongitude">Longitude</label><input class="form-control" id="inspectionLongitude" type="number" name="longitude" min="-180" max="180" step="0.0000001" value="<?php echo e((string) ($latestInspection['longitude'] ?? $application['longitude'] ?? '')); ?>"></div>
+                    <div class="col-12"><div class="small text-secondary mb-1">Pin the inspection meeting point (optional) — click the map or drag the pin.</div><div id="inspectionPickerMap" class="geo-map geo-map-compact"></div></div>
                     <div class="col-12"><label class="form-label" for="inspectionScheduleNotes">Schedule notes</label><textarea class="form-control" id="inspectionScheduleNotes" name="inspection_notes" rows="3" maxlength="1000"></textarea><div class="form-text">The applicant is notified after the schedule is recorded.</div></div>
                 </div>
             </div>
@@ -705,7 +728,7 @@ $defaultInspectionLocation = implode(', ', array_filter([
                 <input type="hidden" name="document_type" id="originalDocumentType">
                 <input type="hidden" name="expected_document_id" id="originalExpectedDocumentId">
                 <p class="fw-semibold" id="originalDocumentLabel"></p>
-                <div class="alert alert-light border small"><i class="bi bi-info-circle me-1"></i>This records a separate original-document decision. Verification time and verifying personnel are recorded automatically.</div>
+                <div class="alert alert-light border small"><i class="bi bi-info-circle me-1"></i>Records a separate original-document decision; time and verifier are logged automatically.</div>
                 <div class="row g-3">
                     <div class="col-md-6"><label for="originalReceived" class="form-label">Original hardcopy received</label><select class="form-select" id="originalReceived" name="original_received" required><option value="1">Yes</option><option value="0">No</option></select></div>
                     <div class="col-md-6"><label for="originalReceivedOn" class="form-label">Date received</label><input class="form-control" type="date" id="originalReceivedOn" name="original_received_on" max="<?php echo e(date('Y-m-d')); ?>"></div>
@@ -722,7 +745,43 @@ $defaultInspectionLocation = implode(', ', array_filter([
     </div>
     <?php endif; ?>
 
+    <script type="application/json" id="zoneMapData"><?php echo json_encode($zoneMapFeatures, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="../../js/geo-map.js"></script>
+    <script>
+        (() => {
+            const zones = CertreefyGeo.readJson('zoneMapData', []);
+            <?php if ($application['latitude'] !== null && $application['longitude'] !== null): ?>
+            CertreefyGeo.display('propertySiteMap', {
+                zones: zones,
+                points: [{
+                    lat: <?php echo json_encode((string) $application['latitude']); ?>,
+                    lng: <?php echo json_encode((string) $application['longitude']); ?>,
+                    label: <?php echo json_encode('Application property — ' . (string) $application['transaction_id']); ?>
+                }]
+            });
+            <?php endif; ?>
+
+            // The schedule-modal picker is created on first open so Leaflet
+            // sizes itself against a visible container.
+            const scheduleModal = document.getElementById('inspectionScheduleModal');
+            let inspectionPickerMap = null;
+            if (scheduleModal) {
+                scheduleModal.addEventListener('shown.bs.modal', () => {
+                    if (inspectionPickerMap !== null) {
+                        inspectionPickerMap.invalidateSize();
+                        return;
+                    }
+                    inspectionPickerMap = CertreefyGeo.picker('inspectionPickerMap', {
+                        latInput: 'inspectionLatitude',
+                        lngInput: 'inspectionLongitude',
+                        zones: zones
+                    });
+                });
+            }
+        })();
+    </script>
     <?php if ($canReviewOriginals): ?>
     <script>
         document.querySelectorAll('.review-document').forEach((button) => {

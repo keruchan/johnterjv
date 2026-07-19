@@ -16,8 +16,8 @@ $userId = (int) $_SESSION['id'];
 $applicationValue = permit_donation_scalar_value($_POST['application_id'] ?? '');
 $applicationId = ctype_digit($applicationValue) ? (int) $applicationValue : 0;
 $redirect = $applicationId > 0
-    ? 'donation-requirements.php?application_id=' . $applicationId . '#receipt-workflow'
-    : 'donation-requirements.php';
+    ? 'donation-receipt.php?application_id=' . $applicationId
+    : 'donation-registry.php';
 $submittedToken = permit_donation_scalar_value($_POST['csrf_token'] ?? '');
 $sessionToken = (string) ($_SESSION['csrf_permit_donation_receipt_token'] ?? '');
 
@@ -37,9 +37,9 @@ try {
     );
     $message = match ((string) $result['verification_status']) {
         'draft' => 'The unfinalized receipt was saved. You may correct it before finalization.',
-        'partially_received' => 'The partial receipt was finalized. '
+        'partially_received' => 'The partial receipt was finalized and credited to the seedling inventory. '
             . (int) $result['remaining_total'] . ' seedlings remain.',
-        'ems_verified' => 'EMS physical receipt verification is complete. The application now awaits final RPS verification; the permit was not released.',
+        'ems_verified' => 'EMS physical receipt is complete and credited to the seedling inventory. RPS has been notified for final verification and permit release.',
         'flagged' => 'The donation transaction was flagged and remains blocked from release.',
         default => 'The EMS donation action was recorded.',
     };

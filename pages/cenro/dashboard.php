@@ -17,21 +17,43 @@
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
+require_once __DIR__ . '/../../includes/illegal_logging.php';
 require_once __DIR__ . '/../../includes/view.php';
 
 require_roles($pdo, ['superadmin', 'rps']);
 
 $currentRole = (string) $_SESSION['role'];
+$userId = (int) $_SESSION['id'];
 $displayName = !empty($_SESSION['name'])
     ? (string) $_SESSION['name']
     : ($currentRole === 'rps' ? 'RPS User' : 'CENRO Superadmin');
 $operationsLabel = $currentRole === 'rps'
     ? 'Regulation and Permitting Section'
     : 'CENRO Operations';
+
+$pendingIncidentReports = 0;
+try {
+    if (illegal_logging_processor_actor($pdo, $userId) !== null) {
+        $pendingIncidentReports = (int) $pdo->query(
+            "SELECT COUNT(*) FROM tbl_illegal_logging_reports WHERE current_status <> 'resolved'"
+        )->fetchColumn();
+    }
+} catch (PDOException $e) {
+    error_log('[CERTREEFY CENRO DASHBOARD ERROR] ' . $e->getMessage());
+}
 $navigationPermissions = user_active_permissions($pdo, (int) $_SESSION['id']);
 $canReviewPermitDocuments = $currentRole === 'rps'
+    || array_intersect(
+        [
+            certreefy_permission_original_document_verification(),
+            certreefy_permission_site_inspection(),
+            certreefy_permission_permit_decision(),
+        ],
+        $navigationPermissions
+    ) !== [];
+$canProcessLoggingReports = $currentRole === 'rps'
     || in_array(
-        certreefy_permission_original_document_verification(),
+        certreefy_permission_illegal_logging_processing(),
         $navigationPermissions,
         true
     );
@@ -54,7 +76,7 @@ $todayLabel = date('l, F j, Y');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=6">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -76,7 +98,7 @@ $todayLabel = date('l, F j, Y');
                         <p class="text-secondary meta-copy mb-0">Welcome back, <?php echo e($displayName); ?>. Here's today's registry at a glance.</p>
                     </div>
                     <div class="d-flex align-items-center gap-2">
-                        <span class="officer-chip">
+                        <?php render_certreefy_notification_bell('header'); ?><span class="officer-chip">
                             <span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span>
                             <?php echo e($displayName); ?>
                         </span>
@@ -124,7 +146,7 @@ $todayLabel = date('l, F j, Y');
                             <span class="ledger-icon"><i class="bi bi-exclamation-triangle"></i></span>
                             <span class="ledger-tag">Reports</span>
                         </div>
-                        <div class="ledger-value tabular">0</div>
+                        <div class="ledger-value tabular"><?php echo (int) $pendingIncidentReports; ?></div>
                         <div class="ledger-caption">Illegal logging reports</div>
                     </div>
                 </div>
@@ -141,26 +163,50 @@ $todayLabel = date('l, F j, Y');
             </section>
 
             <!-- Primary modules, framed as registry entries -->
+            <?php
+            $cenroModuleCount = 3; // Area Management, Public Advisories, Analytics are always visible.
+            if ($canReviewPermitDocuments) {
+                $cenroModuleCount++;
+            }
+            if ($canProcessLoggingReports) {
+                $cenroModuleCount++;
+            }
+            if ($currentRole === 'superadmin') {
+                $cenroModuleCount += 2; // User Management, Audit History.
+            }
+            ?>
             <section class="mb-5" aria-label="CENRO primary modules">
                 <div class="section-heading">
                     <h2>Registry Modules</h2>
-                    <span class="section-note">8 modules available</span>
+                    <span class="section-note"><?php echo (int) $cenroModuleCount; ?> modules available</span>
                 </div>
                 <div class="row g-3">
-                    <div class="col-md-6 col-xl-3">
-                        <div class="registry-card">
-                            <span class="registry-icon"><i class="bi bi-tree"></i></span>
-                            <h3>Permit Review</h3>
-                            <p>Tree cutting requests, documentary checks, and approval records.</p>
-                            <a class="link-open" href="<?php echo $canReviewPermitDocuments ? 'permit-applications.php' : '#'; ?>">Open module <i class="bi bi-arrow-right"></i></a>
+                    <?php if ($canReviewPermitDocuments): ?>
+                        <div class="col-md-6 col-xl-3">
+                            <div class="registry-card">
+                                <span class="registry-icon"><i class="bi bi-tree"></i></span>
+                                <h3>Permit Review</h3>
+                                <p>Tree cutting requests, documentary checks, and approval records.</p>
+                                <a class="link-open" href="permit-applications.php">Open module <i class="bi bi-arrow-right"></i></a>
+                            </div>
                         </div>
-                    </div>
+                    <?php endif; ?>
+                    <?php if ($canProcessLoggingReports): ?>
+                        <div class="col-md-6 col-xl-3">
+                            <div class="registry-card tone-rust">
+                                <span class="registry-icon"><i class="bi bi-shield-exclamation"></i></span>
+                                <h3>Logging Reports</h3>
+                                <p>Illegal-logging incident intake, dispatch, and resolution.</p>
+                                <a class="link-open" href="illegal-logging-reports.php">Open module <i class="bi bi-arrow-right"></i></a>
+                            </div>
+                        </div>
+                    <?php endif; ?>
                     <div class="col-md-6 col-xl-3">
                         <div class="registry-card tone-teal">
                             <span class="registry-icon"><i class="bi bi-geo-alt"></i></span>
                             <h3>Area Management</h3>
                             <p>Allowed, restricted, and protected environmental zones.</p>
-                            <a class="link-open" href="#">Open module <i class="bi bi-arrow-right"></i></a>
+                            <a class="link-open" href="area-management.php">Open module <i class="bi bi-arrow-right"></i></a>
                         </div>
                     </div>
                     <div class="col-md-6 col-xl-3">
@@ -168,7 +214,15 @@ $todayLabel = date('l, F j, Y');
                             <span class="registry-icon"><i class="bi bi-megaphone"></i></span>
                             <h3>Public Advisories</h3>
                             <p>Announcements, notices, and environmental information posts.</p>
-                            <a class="link-open" href="#">Open module <i class="bi bi-arrow-right"></i></a>
+                            <a class="link-open" href="advisories.php">Open module <i class="bi bi-arrow-right"></i></a>
+                        </div>
+                    </div>
+                    <div class="col-md-6 col-xl-3">
+                        <div class="registry-card">
+                            <span class="registry-icon"><i class="bi bi-bar-chart-line"></i></span>
+                            <h3>Analytics</h3>
+                            <p>Descriptive, predictive, and prescriptive cross-domain reporting.</p>
+                            <a class="link-open" href="analytics.php">Open module <i class="bi bi-arrow-right"></i></a>
                         </div>
                     </div>
                     <?php if ($currentRole === 'superadmin'): ?>
@@ -178,6 +232,14 @@ $todayLabel = date('l, F j, Y');
                                 <h3>User Management</h3>
                                 <p>Community accounts, role assignment, and account status control.</p>
                                 <a class="link-open" href="user-management.php">Open module <i class="bi bi-arrow-right"></i></a>
+                            </div>
+                        </div>
+                        <div class="col-md-6 col-xl-3">
+                            <div class="registry-card tone-teal">
+                                <span class="registry-icon"><i class="bi bi-journal-text"></i></span>
+                                <h3>Audit History</h3>
+                                <p>Activity log and login attempts, in plain-language form.</p>
+                                <a class="link-open" href="audit-history.php">Open module <i class="bi bi-arrow-right"></i></a>
                             </div>
                         </div>
                     <?php endif; ?>
@@ -204,7 +266,7 @@ $todayLabel = date('l, F j, Y');
                                 <div class="docket-title">Illegal logging incident reports</div>
                                 <div class="docket-sub">Reports requiring assessment</div>
                             </div>
-                            <span class="count-badge tabular">0 pending</span>
+                            <span class="count-badge tabular"><?php echo (int) $pendingIncidentReports; ?> pending</span>
                         </div>
                         <div class="docket-row">
                             <div>

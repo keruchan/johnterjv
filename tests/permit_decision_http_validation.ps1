@@ -324,13 +324,13 @@ INSERT INTO tbl_users (fname,lname,email,contact,address,username,password,role,
     $rpsRequirementPage = Get-RpsDetail $cookies.rps $readyApplicationId
     Assert-Check ($rpsRequirementPage -match 'Seedling Donation Requirement' -and $rpsRequirementPage -match 'property_private_property' -and $rpsRequirementPage -match 'Currently received') 'RPS sees the applied policy, quantity progress, instructions, and requirement status.'
 
-    $emsRegistry = (& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php?transaction=$readyTransaction") -join "`n"
-    $emsPublicRegistry = (& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php?transaction=$publicTransaction") -join "`n"
+    $emsRegistry = (& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-registry.php?transaction=$readyTransaction") -join "`n"
+    $emsPublicRegistry = (& curl.exe -s -b $cookies.ems "$script:baseUrl/pages/ems/donation-registry.php?transaction=$publicTransaction") -join "`n"
     Assert-Check ($emsRegistry -match [regex]::Escape($readyTransaction) -and $emsRegistry -match 'property_private_property' -and $emsRegistry -notmatch [regex]::Escape($newTransaction) -and $emsPublicRegistry -match [regex]::Escape($publicTransaction)) 'EMS can discover approved public and private donation requirements by transaction ID.'
     Assert-Check ($emsRegistry -match 'aria-current="page"' -and $emsRegistry -match 'Open' -and $emsRegistry -notmatch 'name="required_seedling_count"') 'EMS navigation exposes the searchable receipt registry without requirement quantity-editing controls.'
-    $emsPostStatus = & curl.exe -s -o NUL -w '%{http_code}' -X POST -b $cookies.ems "$script:baseUrl/pages/ems/donation-requirements.php"
-    $communityEmsHeaders = (& curl.exe -s -D - -o NUL -b $cookies.owner "$script:baseUrl/pages/ems/donation-requirements.php") -join "`n"
-    $rpsEmsHeaders = (& curl.exe -s -D - -o NUL -b $cookies.rps "$script:baseUrl/pages/ems/donation-requirements.php") -join "`n"
+    $emsPostStatus = & curl.exe -s -o NUL -w '%{http_code}' -X POST -b $cookies.ems "$script:baseUrl/pages/ems/donation-registry.php"
+    $communityEmsHeaders = (& curl.exe -s -D - -o NUL -b $cookies.owner "$script:baseUrl/pages/ems/donation-registry.php") -join "`n"
+    $rpsEmsHeaders = (& curl.exe -s -D - -o NUL -b $cookies.rps "$script:baseUrl/pages/ems/donation-registry.php") -join "`n"
     Assert-Check ($emsPostStatus -eq '405' -and $communityEmsHeaders -match 'HTTP/1\.1 302' -and $rpsEmsHeaders -match 'HTTP/1\.1 302') 'The EMS registry rejects writes and denies non-EMS roles at the server boundary.'
 
     Write-Output 'PERMIT DECISION HTTP VALIDATION COMPLETE'

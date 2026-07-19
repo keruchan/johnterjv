@@ -142,7 +142,7 @@ $todayLabel = date('l, F j, Y');
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=6">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -160,7 +160,7 @@ $todayLabel = date('l, F j, Y');
                         <p class="meta-copy mb-0">Keep your contact and account information current.</p>
                     </div>
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                        <span class="officer-chip">
+                        <?php render_certreefy_notification_bell('header'); ?><span class="officer-chip">
                             <span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span>
                             <?php echo e($displayName); ?>
                         </span>
@@ -237,9 +237,6 @@ $todayLabel = date('l, F j, Y');
                                     <button type="submit" class="btn btn-certreefy">
                                         <i class="bi bi-check2-circle"></i> Save profile
                                     </button>
-                                    <a href="dashboard.php" class="btn btn-outline-secondary">
-                                        <i class="bi bi-arrow-left"></i> Back to dashboard
-                                    </a>
                                 </div>
                             </div>
                         </form>

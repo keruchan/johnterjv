@@ -255,7 +255,8 @@ foreach ($permitInspections as $inspection) {
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=6">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -277,7 +278,7 @@ foreach ($permitInspections as $inspection) {
                         </p>
                     </div>
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                        <span class="officer-chip">
+                        <?php render_certreefy_notification_bell('header'); ?><span class="officer-chip">
                             <span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span>
                             <?php echo e($displayName); ?>
                         </span>
@@ -308,12 +309,33 @@ foreach ($permitInspections as $inspection) {
                 </div>
             <?php endif; ?>
 
+            <?php if ($applicationRecord !== null && $applicationRecord['transaction_id'] !== null): ?>
+                <section class="docket-panel mb-3" aria-labelledby="status-tracker-heading">
+                    <div class="section-heading">
+                        <h2 id="status-tracker-heading">Where Your Application Is</h2>
+                        <span class="section-note"><?php echo e((string) $applicationRecord['transaction_id']); ?></span>
+                    </div>
+                    <div class="status-tracker">
+                        <?php $trackerSteps = permit_status_tracker_steps($applicationRecord); ?>
+                        <?php foreach ($trackerSteps as $index => $step): ?>
+                            <div class="status-step status-step-<?php echo e($step['state']); ?>">
+                                <div class="status-step-circle"><i class="bi <?php echo e($step['icon']); ?>"></i></div>
+                                <div class="status-step-label"><?php echo e($step['label']); ?></div>
+                            </div>
+                            <?php if ($index < count($trackerSteps) - 1): ?>
+                                <div class="status-step-line status-step-line-<?php echo e($step['state']); ?>"></div>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
+                </section>
+            <?php endif; ?>
+
             <form method="post" action="permit-application.php" novalidate id="permit-form">
                 <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_token']); ?>">
                 <input type="hidden" name="submission_key" value="<?php echo e($submissionKey); ?>">
                 <input type="hidden" name="application_id" value="<?php echo $applicationId !== null ? e((string) $applicationId) : ''; ?>">
 
-                <div class="row g-3">
+                <div class="row g-3 align-items-start">
                     <div class="col-xl-9">
                         <section class="docket-panel mb-3" aria-labelledby="applicant-heading">
                             <div class="section-heading">
@@ -378,7 +400,7 @@ foreach ($permitInspections as $inspection) {
                                 <div class="col-12" id="authorization-field">
                                     <label for="authorization_details" class="form-label">Authorization details</label>
                                     <textarea class="form-control" id="authorization_details" name="authorization_details" rows="2" maxlength="1000"<?php echo $disabled; ?>><?php echo e((string) ($formData['authorization_details'] ?? '')); ?></textarea>
-                                    <div class="form-text">Describe the owner's authorization. Documentary requirements remain subject to CENRO verification.</div>
+                                    <div class="form-text">Describe the owner's authorization — subject to CENRO verification.</div>
                                 </div>
                                 <div class="col-md-6">
                                     <label for="property_classification" class="form-label">Property classification <span class="text-danger">*</span></label>
@@ -421,6 +443,13 @@ foreach ($permitInspections as $inspection) {
                                     <label for="longitude" class="form-label">Longitude</label>
                                     <input type="number" class="form-control" id="longitude" name="longitude" value="<?php echo e((string) ($formData['longitude'] ?? '')); ?>" min="-180" max="180" step="0.0000001"<?php echo $disabled; ?>>
                                 </div>
+                                <div class="col-12">
+                                    <label class="form-label mb-1"><?php echo $isEditable ? 'Pin the property on the map' : 'Property location map'; ?></label>
+                                    <?php if ($isEditable): ?>
+                                        <p class="text-secondary small mb-2">Click the map (or use &#9737; for your current location) to set coordinates. Drag the pin to adjust — this helps CENRO locate the trees during inspection.</p>
+                                    <?php endif; ?>
+                                    <div id="propertyMap" class="geo-map geo-map-compact"></div>
+                                </div>
                             </div>
                         </section>
 
@@ -443,7 +472,7 @@ foreach ($permitInspections as $inspection) {
                             <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-3">
                                 <h3 class="h5 mb-0">Tree records</h3>
                                 <?php if ($isEditable): ?>
-                                    <button type="button" class="btn btn-sm btn-outline-secondary" id="add-tree">
+                                    <button type="button" class="btn btn-sm btn-outline-success" id="add-tree">
                                         <i class="bi bi-plus-circle"></i> Add tree entry
                                     </button>
                                 <?php endif; ?>
@@ -490,7 +519,7 @@ foreach ($permitInspections as $inspection) {
                                     </div>
                                 <?php endforeach; ?>
                             </div>
-                            <p class="form-text mt-3 mb-0">Measurements are optional until CENRO confirms they are required for the applicable tree or property classification.</p>
+                            <p class="form-text mt-3 mb-0">Optional until CENRO confirms they're required for this classification.</p>
                         </section>
 
                         <section class="docket-panel" aria-labelledby="declaration-heading">
@@ -517,7 +546,7 @@ foreach ($permitInspections as $inspection) {
                                 </div>
                             <?php else: ?>
                                 <div class="alert alert-light border mt-4 mb-0" role="status">
-                                    <i class="bi bi-lock"></i> This application is locked after submission. No correction-editing stage is enabled in the verified workflow.
+                                    <i class="bi bi-lock"></i> Locked after submission — editing isn't available.
                                 </div>
                                 <a href="permit-applications.php" class="btn btn-outline-secondary mt-3">
                                     <i class="bi bi-arrow-left"></i> Back to applications
@@ -526,8 +555,8 @@ foreach ($permitInspections as $inspection) {
                         </section>
                     </div>
 
-                    <div class="col-xl-3">
-                        <aside class="snapshot-panel">
+                    <div class="col-xl-3 align-self-stretch">
+                        <aside class="snapshot-panel snapshot-sticky">
                             <div class="section-heading">
                                 <h2>Application Snapshot</h2>
                             </div>
@@ -559,7 +588,7 @@ foreach ($permitInspections as $inspection) {
                         <div><h2 id="inspection-heading">Site Inspection</h2><span class="section-note">Schedule and result information</span></div>
                         <span class="badge <?php echo e(permit_inspection_status_badge((string) $applicationRecord['inspection_status'])); ?>"><?php echo e(permit_inspection_status_label((string) $applicationRecord['inspection_status'])); ?></span>
                     </div>
-                    <div class="alert alert-light border"><i class="bi bi-info-circle me-1"></i>You can view inspection updates for this application. Only authorized RPS personnel may schedule an inspection or record findings. A passed inspection does not itself approve the permit.</div>
+                    <div class="alert alert-light border"><i class="bi bi-info-circle me-1"></i>View-only — RPS schedules inspections and records findings. Passing inspection doesn't approve the permit.</div>
                     <?php if ($permitInspections === []): ?>
                         <p class="text-secondary mb-0">RPS has not yet recorded an inspection assessment.</p>
                     <?php else: ?>
@@ -584,7 +613,7 @@ foreach ($permitInspections as $inspection) {
                         <div><h2 id="decision-heading">RPS Review &amp; Decision</h2><span class="section-note">Read-only review updates for your application</span></div>
                         <span class="badge <?php echo e(permit_decision_event_badge((string) $applicationRecord['decision_status'])); ?>"><?php echo e(permit_status_label((string) $applicationRecord['decision_status'])); ?></span>
                     </div>
-                    <div class="alert alert-light border"><i class="bi bi-info-circle me-1"></i>An approval shown here is not the final permit release. Approved applications continue through the required donation and release workflow.</div>
+                    <div class="alert alert-light border"><i class="bi bi-info-circle me-1"></i>Approval isn't the final release — it still goes through donation and release.</div>
                     <?php if ($donationRequirement !== null): ?><div class="mb-3"><?php render_permit_donation_requirement($donationRequirement); ?></div><?php endif; ?>
                     <?php if ($permitDecisions === []): ?>
                         <p class="text-secondary mb-0">No RPS review action has been recorded yet.</p>
@@ -623,7 +652,7 @@ foreach ($permitInspections as $inspection) {
                         <?php if (!empty($permitReleaseRecord['permit_file_path'])): ?>
                             <div class="border rounded p-3 mb-2">
                                 <h3 class="h6 mb-2"><i class="bi bi-file-earmark-pdf me-1"></i>Signed permit copy <span class="text-secondary fw-normal">(reference only)</span></h3>
-                                <p class="small text-secondary mb-2">A scanned copy for your reference. The official permit remains the physical signed document claimed at the office.</p>
+                                <p class="small text-secondary mb-2">For reference only — the official permit is the signed copy claimed at the office.</p>
                                 <div class="row g-3 mb-2">
                                     <div class="col-md-4"><div class="small text-secondary">Signed on</div><div class="fw-semibold"><?php echo $permitReleaseRecord['signed_on'] !== null ? e(date('M j, Y', strtotime((string) $permitReleaseRecord['signed_on']))) : '-'; ?></div></div>
                                     <div class="col-md-4"><div class="small text-secondary">Signing personnel</div><div class="fw-semibold"><?php echo $permitReleaseRecord['signed_by_name'] !== null ? e((string) $permitReleaseRecord['signed_by_name']) : '-'; ?></div></div>
@@ -633,12 +662,12 @@ foreach ($permitInspections as $inspection) {
                             </div>
                         <?php endif; ?>
                         <?php if ((string) $applicationRecord['validity_status'] === 'active' && !empty($permitValiditySnapshot['is_expiring_soon'])): ?>
-                            <div class="alert alert-warning"><i class="bi bi-hourglass-split me-1"></i>Your permit expires in <?php echo (int) $permitValiditySnapshot['days_remaining']; ?> day(s). No extension is possible; complete cutting before it lapses.</div>
+                            <div class="alert alert-warning"><i class="bi bi-hourglass-split me-1"></i>Expires in <?php echo (int) $permitValiditySnapshot['days_remaining']; ?> day(s), no extension — complete cutting before it lapses.</div>
                         <?php elseif ((string) $applicationRecord['validity_status'] === 'expired'): ?>
                             <div class="alert alert-danger"><i class="bi bi-x-octagon me-1"></i>Your permit has expired and cannot be extended or reactivated. If cutting was not completed, a new application and transaction ID are required.</div>
                         <?php endif; ?>
                     <?php else: ?>
-                        <div class="alert alert-light border mb-0"><i class="bi bi-info-circle me-1"></i>Your application has cleared donation verification and is awaiting permit preparation and release by RPS. No extension applies once released.</div>
+                        <div class="alert alert-light border mb-0"><i class="bi bi-info-circle me-1"></i>Donation verified — awaiting permit preparation and release by RPS. No extension once released.</div>
                     <?php endif; ?>
                     <?php if ($permitCuttingCompletion !== null): ?>
                         <div class="border rounded p-3 mt-2">
@@ -676,7 +705,7 @@ foreach ($permitInspections as $inspection) {
 
                     <div class="alert alert-warning" role="note">
                         <i class="bi bi-exclamation-triangle me-1"></i>
-                        Uploaded scans support online screening only. They do not replace required original hardcopy documents, wet-ink signatures, or in-person verification.
+                        Scans support online screening only — they don't replace original hardcopy documents, wet-ink signatures, or in-person verification.
                     </div>
 
                     <?php if (is_array($documentFlash)): ?>
@@ -688,12 +717,12 @@ foreach ($permitInspections as $inspection) {
                     <div class="row g-3 mb-4">
                         <div class="col-lg-6"><div class="border rounded p-3 h-100"><div class="d-flex justify-content-between small mb-1"><span>Required digital scans accepted</span><span class="fw-semibold"><?php echo $acceptedRequiredCount; ?> of <?php echo $requiredDocumentCount; ?></span></div><div class="progress" role="progressbar" aria-label="Required online scans" aria-valuenow="<?php echo $documentProgress; ?>" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: <?php echo $documentProgress; ?>%"><?php echo $documentProgress; ?>%</div></div></div></div>
                         <div class="col-lg-6"><div class="border rounded p-3 h-100"><div class="d-flex justify-content-between small mb-1"><span>Required originals verified</span><span class="fw-semibold"><?php echo (int) $originalDocumentProgress['verified']; ?> of <?php echo (int) $originalDocumentProgress['required']; ?></span></div><div class="progress" role="progressbar" aria-label="Required original documents" aria-valuenow="<?php echo (int) $originalDocumentProgress['percent']; ?>" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: <?php echo (int) $originalDocumentProgress['percent']; ?>%"><?php echo (int) $originalDocumentProgress['percent']; ?>%</div></div></div></div>
-                        <div class="col-12"><div class="form-text">This checklist is provisional until CENRO/RPS confirms the official document requirements.</div></div>
+                        <div class="col-12"><div class="form-text">Provisional until CENRO/RPS confirms official document requirements.</div></div>
                     </div>
 
                     <?php if ($documentUploadLockReason !== null): ?>
                         <div class="alert alert-light border" role="status">
-                            <i class="bi bi-lock me-1"></i><?php echo e($documentUploadLockReason); ?> Existing authorized downloads remain available.
+                            <i class="bi bi-lock me-1"></i><?php echo e($documentUploadLockReason); ?> Downloads stay available.
                         </div>
                     <?php endif; ?>
 
@@ -840,6 +869,15 @@ foreach ($permitInspections as $inspection) {
     <?php endif; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="../../js/geo-map.js"></script>
+    <script>
+        CertreefyGeo.picker('propertyMap', {
+            latInput: 'latitude',
+            lngInput: 'longitude',
+            readOnly: <?php echo $isEditable ? 'false' : 'true'; ?>
+        });
+    </script>
     <?php if ($isEditable): ?>
         <script>
             (() => {

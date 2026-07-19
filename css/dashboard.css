@@ -94,15 +94,30 @@ button:focus-visible,
     min-height: 100vh;
     display: grid;
     grid-template-columns: 272px minmax(0, 1fr);
+    /* Let each column size to its own content instead of stretching to the
+       tallest one. Without this, `.main` becomes a definite-height grid item,
+       and any standalone panel using `height: 100%` (see `.docket-panel`)
+       inflates to the full page height, producing phantom empty scroll space
+       below the content. Equal-height panels inside Bootstrap rows are
+       unaffected because their height comes from the flex row, not `.main`. */
+    align-items: start;
 }
 
 .main {
     min-width: 0;
     padding: 1.6rem clamp(1rem, 3vw, 2.35rem) 3rem;
+    /* IMPORTANT: `.main` must size to its content (height stays auto). Do NOT
+       add `min-height: 100vh` here — that gives `.main` a definite height, which
+       makes any standalone `.docket-panel { height: 100% }` stretch to the full
+       viewport and reintroduce phantom empty scroll space below the content. The
+       page already fills the screen via `.app-shell { min-height: 100vh }` and
+       the sticky `.sidebar { height: 100vh }` rail. */
 }
 
 .sidebar {
-    background: var(--canopy-950);
+    background:
+        radial-gradient(120% 60% at 0% 0%, rgba(58, 125, 93, 0.22), transparent 60%),
+        var(--canopy-950);
     color: #d9e6dd;
     padding: 1.5rem 1.15rem;
     position: sticky;
@@ -111,15 +126,47 @@ button:focus-visible,
     display: flex;
     flex-direction: column;
     overflow-y: auto;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+}
+
+.sidebar::-webkit-scrollbar {
+    width: 8px;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 8px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 1.35rem;
+    margin-bottom: 1.35rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .brand-block {
     display: flex;
     align-items: center;
     gap: 0.8rem;
-    padding-bottom: 1.35rem;
-    margin-bottom: 1.35rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 0.35rem;
+    border-radius: var(--radius-md);
+    transition: background-color 0.15s ease;
+}
+
+a.brand-block:hover,
+a.brand-block:focus-visible {
+    background-color: rgba(116, 165, 127, 0.1);
 }
 
 .registry-seal,
@@ -165,11 +212,26 @@ button:focus-visible,
 .nav-panel {
     display: grid;
     align-content: start;
-    gap: 0.2rem;
+    gap: 0.15rem;
     flex: 1;
 }
 
+.nav-section-label {
+    padding: 0.55rem 0.85rem 0.25rem;
+    margin-top: 0.55rem;
+    color: #7f9a86;
+    font-size: 0.67rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.nav-section-label:first-child {
+    margin-top: 0;
+}
+
 .nav-panel a {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 0.8rem;
@@ -187,6 +249,7 @@ button:focus-visible,
     color: #8daf99;
     font-size: 1.05rem;
     text-align: center;
+    transition: color 0.15s ease;
 }
 
 .nav-panel a:hover {
@@ -194,13 +257,77 @@ button:focus-visible,
     color: #fff;
 }
 
+.nav-panel a:hover i {
+    color: #bfe0c9;
+}
+
 .nav-panel a.active {
-    background: var(--fern-600);
+    background: linear-gradient(120deg, var(--fern-600), var(--fern-500));
     color: #fff;
+    box-shadow: 0 6px 16px -8px rgba(58, 125, 93, 0.9);
+}
+
+.nav-panel a.active::before {
+    content: "";
+    position: absolute;
+    left: -1.15rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 22px;
+    border-radius: 0 4px 4px 0;
+    background: var(--moss-400);
 }
 
 .nav-panel a.active i {
     color: #fff;
+}
+
+.sidebar-identity {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.55rem 0.6rem;
+    margin-bottom: 0.55rem;
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sidebar-identity .id-avatar {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: linear-gradient(155deg, var(--fern-500), var(--canopy-800));
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 700;
+}
+
+.sidebar-identity .id-meta {
+    min-width: 0;
+}
+
+.sidebar-identity .id-name {
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    line-height: 1.15;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.sidebar-identity .id-role {
+    color: #9db8a6;
+    font-size: 0.71rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
 }
 
 .nav-divider {
@@ -611,6 +738,18 @@ button:focus-visible,
     padding: 1.35rem 1.45rem;
 }
 
+/* Sticky sidebar panel: for a column sized to match a much taller sibling
+   (e.g. a multi-section form) via `align-self-stretch` on the column, while
+   the panel itself stays its own natural height and follows the viewport as
+   the page scrolls, instead of stretching to fill the column (which would
+   reintroduce the phantom-space bug) or sitting fixed at the top leaving a
+   large empty gap below it. */
+.snapshot-panel.snapshot-sticky {
+    height: auto;
+    position: sticky;
+    top: 1.6rem;
+}
+
 .docket-row {
     display: flex;
     align-items: center;
@@ -627,6 +766,19 @@ button:focus-visible,
 .docket-row:last-child {
     border-bottom: 0;
     padding-bottom: 0.2rem;
+}
+
+/* Clickable docket rows (e.g. dashboard "My Requests" deep-links). */
+a.docket-row {
+    padding-inline: 0.6rem;
+    margin-inline: -0.6rem;
+    border-radius: var(--radius-md);
+    transition: background-color 0.15s ease;
+}
+
+a.docket-row:hover,
+a.docket-row:focus-visible {
+    background-color: var(--sprout-100);
 }
 
 .docket-title {
@@ -743,6 +895,76 @@ button:focus-visible,
     --bs-btn-hover-border-color: var(--canopy-800);
     border-radius: var(--radius-md);
     font-weight: 600;
+}
+
+/*
+ * Standardized, color-coded outline action buttons (view/edit/approve/etc.),
+ * shared by every registry table and card across the system. Same size and
+ * shape as Bootstrap's outline buttons; only the accent color carries
+ * meaning, reusing the palette already used for ledger-card accents/badges:
+ *   - secondary (neutral)  -> View / Open / Download / Cancel / Back
+ *   - primary   (teal)     -> Edit / Correct / Adjust / Online review
+ *   - success   (fern)     -> Publish / Add row / confirm-positive actions
+ *   - warning   (amber)    -> Archive / other soft, reversible cautions
+ *   - danger    (rust)     -> Remove / Withdraw / Decline / delete
+ * The solid `.btn-certreefy` (fern) remains reserved for the one primary
+ * stage-advancing action in a form (Approve, Begin Review, Release, ...).
+ */
+.btn-outline-secondary {
+    --bs-btn-color: var(--ink-600);
+    --bs-btn-border-color: #c9c2a8;
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--ink-600);
+    --bs-btn-hover-border-color: var(--ink-600);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--ink-600);
+    --bs-btn-active-border-color: var(--ink-600);
+}
+
+.btn-outline-primary {
+    --bs-btn-color: var(--teal-600);
+    --bs-btn-border-color: var(--teal-600);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--teal-600);
+    --bs-btn-hover-border-color: var(--teal-600);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--teal-600);
+    --bs-btn-active-border-color: var(--teal-600);
+    --bs-btn-focus-shadow-rgb: 31, 106, 104;
+}
+
+.btn-outline-success {
+    --bs-btn-color: var(--fern-600);
+    --bs-btn-border-color: var(--fern-600);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--fern-600);
+    --bs-btn-hover-border-color: var(--fern-600);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--fern-600);
+    --bs-btn-active-border-color: var(--fern-600);
+    --bs-btn-focus-shadow-rgb: 45, 106, 79;
+}
+
+.btn-outline-warning {
+    --bs-btn-color: var(--amber-600);
+    --bs-btn-border-color: var(--amber-600);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--amber-600);
+    --bs-btn-hover-border-color: var(--amber-600);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--amber-600);
+    --bs-btn-active-border-color: var(--amber-600);
+}
+
+.btn-outline-danger {
+    --bs-btn-color: var(--rust-600);
+    --bs-btn-border-color: var(--rust-600);
+    --bs-btn-hover-color: #fff;
+    --bs-btn-hover-bg: var(--rust-600);
+    --bs-btn-hover-border-color: var(--rust-600);
+    --bs-btn-active-color: #fff;
+    --bs-btn-active-bg: var(--rust-600);
+    --bs-btn-active-border-color: var(--rust-600);
 }
 
 .user-filter-panel,
@@ -912,6 +1134,241 @@ button:focus-visible,
     border-color: var(--line);
 }
 
+.account-modal {
+    max-height: calc(100vh - 2rem);
+    overflow: hidden;
+    background: var(--paper);
+}
+
+.account-modal > form {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 2rem);
+    min-height: 0;
+}
+
+.account-modal-header {
+    align-items: flex-start;
+    flex: 0 0 auto;
+    padding: 1rem 1.2rem;
+    background:
+        linear-gradient(135deg, rgba(238, 244, 239, 0.98), rgba(246, 244, 236, 0.96));
+}
+
+.account-modal-icon {
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 40px;
+    border-radius: var(--radius-md);
+    color: #fff;
+    background: var(--fern-600);
+    box-shadow: 0 12px 24px -18px rgba(18, 36, 29, 0.7);
+}
+
+.account-modal-icon i {
+    font-size: 1.2rem;
+}
+
+.account-modal-subtitle {
+    color: var(--ink-600);
+    font-size: 0.82rem;
+}
+
+.account-modal .modal-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1rem 1.2rem;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 244, 236, 0.46));
+}
+
+.account-modal-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    flex: 0 0 auto;
+    padding: 0.85rem 1.2rem;
+    background: var(--paper);
+    box-shadow: 0 -10px 22px -24px rgba(18, 36, 29, 0.65);
+}
+
+.account-form-section {
+    margin-bottom: 0.75rem;
+    padding: 0.85rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: rgba(255, 255, 255, 0.9);
+}
+
+.account-section-heading {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    margin-bottom: 0.7rem;
+}
+
+.account-section-heading > span {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 30px;
+    border-radius: var(--radius-sm);
+    color: var(--teal-600);
+    background: var(--teal-100);
+}
+
+.account-section-heading h3,
+.account-side-panel h3 {
+    margin: 0;
+    color: var(--ink-900);
+    font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 0.9rem;
+    font-weight: 800;
+}
+
+.account-section-heading p,
+.account-side-panel p {
+    margin: 0.08rem 0 0;
+    color: var(--ink-600);
+    font-size: 0.76rem;
+}
+
+.account-modal .input-group-text {
+    color: var(--ink-600);
+    background: var(--sprout-100);
+    border-color: #d6d0bb;
+    border-radius: var(--radius-sm);
+}
+
+.account-modal .form-text {
+    color: var(--ink-400);
+    font-size: 0.76rem;
+}
+
+.account-side-panel {
+    padding: 0.85rem;
+    border: 1px solid #d6d0bb;
+    border-radius: var(--radius-md);
+    background:
+        linear-gradient(180deg, rgba(238, 244, 239, 0.82), rgba(255, 255, 255, 0.94));
+}
+
+.account-side-status {
+    margin-bottom: 0.65rem;
+}
+
+.role-choice-group {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.8rem;
+}
+
+.role-choice {
+    display: grid;
+    grid-template-columns: auto auto minmax(0, 1fr);
+    align-items: flex-start;
+    gap: 0.55rem;
+    padding: 0.64rem;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: var(--paper);
+    cursor: pointer;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.role-choice:hover,
+.role-choice:has(.form-check-input:checked) {
+    border-color: var(--fern-600);
+    background: var(--sprout-100);
+    box-shadow: 0 14px 30px -28px rgba(18, 36, 29, 0.5);
+}
+
+.role-choice .form-check-input {
+    margin-top: 0.18rem;
+    border-color: #b9b099;
+}
+
+.role-choice .form-check-input:checked {
+    background-color: var(--fern-600);
+    border-color: var(--fern-600);
+}
+
+.role-choice-icon {
+    width: 30px;
+    height: 30px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--fern-600);
+    background: rgba(255, 255, 255, 0.8);
+}
+
+.role-choice-title,
+.role-choice-desc {
+    display: block;
+}
+
+.role-choice-title {
+    color: var(--ink-900);
+    font-size: 0.8rem;
+    font-weight: 800;
+}
+
+.role-choice-desc {
+    margin-top: 0.08rem;
+    color: var(--ink-600);
+    font-size: 0.72rem;
+    line-height: 1.35;
+}
+
+.account-side-note {
+    display: flex;
+    gap: 0.45rem;
+    margin-top: 0.75rem;
+    padding-top: 0.7rem;
+    border-top: 1px solid var(--line);
+    color: var(--ink-600);
+    font-size: 0.72rem;
+    line-height: 1.45;
+}
+
+.account-side-note i {
+    color: var(--amber-600);
+    margin-top: 0.12rem;
+}
+
+@media (max-width: 767.98px) {
+    .account-modal,
+    .account-modal > form {
+        max-height: 100vh;
+    }
+
+    .account-modal-header {
+        padding: 0.85rem 1rem;
+    }
+
+    .account-modal .modal-body {
+        padding: 0.85rem 1rem;
+    }
+
+    .account-modal-footer {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.55rem;
+        padding: 0.8rem 1rem;
+    }
+
+    .account-modal-footer .btn {
+        width: 100%;
+    }
+}
+
 .modal-content .form-label,
 .user-detail-list dt {
     color: var(--ink-600);
@@ -937,6 +1394,249 @@ button:focus-visible,
     --bs-pagination-focus-color: var(--canopy-900);
     --bs-pagination-active-bg: var(--fern-600);
     --bs-pagination-active-border-color: var(--fern-600);
+}
+
+/* ---- Shared table tools (search / filter / pagination) ---- */
+.tt-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.85rem;
+}
+
+.tt-search {
+    position: relative;
+    flex: 1 1 240px;
+    max-width: 340px;
+}
+
+.tt-search > i {
+    position: absolute;
+    left: 0.7rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--ink-400);
+    font-size: 0.9rem;
+    pointer-events: none;
+}
+
+.tt-search .form-control {
+    padding-left: 2.1rem;
+    border-color: #d6d0bb;
+}
+
+.tt-filter {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 140px;
+    border-color: #d6d0bb;
+}
+
+.tt-count {
+    margin-left: auto;
+    color: var(--ink-400);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.tt-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.85rem;
+}
+
+.tt-pager {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-wrap: wrap;
+}
+
+.tt-pager .btn {
+    min-width: 34px;
+}
+
+.tt-ellipsis {
+    padding: 0 0.25rem;
+    color: var(--ink-400);
+}
+
+/* ---- Analytics: chart frames, forecast chips, recommendation cards ---- */
+.chart-frame {
+    position: relative;
+    width: 100%;
+    height: 300px;
+}
+
+.chart-frame.chart-frame-sm {
+    height: 240px;
+}
+
+.chart-frame canvas {
+    max-width: 100%;
+}
+
+.analytics-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1rem;
+    margin-top: 0.35rem;
+    font-size: 0.8rem;
+    color: var(--ink-600);
+}
+
+.analytics-legend .lg-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.analytics-legend .lg-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    display: inline-block;
+}
+
+.analytics-legend .lg-dot.dashed {
+    border: 1.5px dashed currentColor;
+    background: transparent;
+}
+
+.forecast-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    font-size: 0.74rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.forecast-chip.rising {
+    color: var(--rust-600);
+    background: var(--rust-100);
+}
+
+.forecast-chip.falling {
+    color: var(--fern-600);
+    background: var(--sprout-100);
+}
+
+.forecast-chip.flat {
+    color: var(--ink-600);
+    background: var(--sprout-100);
+}
+
+/* Whether a rising trend is good or bad is domain-specific: rising illegal
+   logging is bad (rust), rising seedling distribution is good (fern). Pages opt
+   in with `.metric-good`/`.metric-bad` on the chip's wrapper when the default
+   rising=bad coloring should be inverted. */
+.metric-good .forecast-chip.rising {
+    color: var(--fern-600);
+    background: var(--sprout-100);
+}
+
+.metric-good .forecast-chip.falling {
+    color: var(--rust-600);
+    background: var(--rust-100);
+}
+
+.reco-item {
+    display: flex;
+    gap: 0.85rem;
+    padding: 0.9rem 1rem;
+    border: 1px solid var(--line);
+    border-left-width: 4px;
+    border-radius: var(--radius-md);
+    background: var(--paper);
+    margin-bottom: 0.7rem;
+}
+
+.reco-item:last-child {
+    margin-bottom: 0;
+}
+
+.reco-item .reco-icon {
+    width: 38px;
+    height: 38px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-md);
+    font-size: 1.1rem;
+}
+
+.reco-item .reco-title {
+    font-weight: 700;
+    color: var(--ink-900);
+    font-size: 0.95rem;
+    line-height: 1.25;
+}
+
+.reco-item .reco-detail {
+    color: var(--ink-600);
+    font-size: 0.86rem;
+    margin-top: 0.15rem;
+}
+
+.reco-item.level-critical {
+    border-left-color: var(--rust-600);
+}
+
+.reco-item.level-critical .reco-icon {
+    background: var(--rust-100);
+    color: var(--rust-600);
+}
+
+.reco-item.level-warning {
+    border-left-color: var(--amber-600);
+}
+
+.reco-item.level-warning .reco-icon {
+    background: var(--amber-100);
+    color: var(--amber-600);
+}
+
+.reco-item.level-info {
+    border-left-color: var(--teal-600);
+}
+
+.reco-item.level-info .reco-icon {
+    background: var(--teal-100);
+    color: var(--teal-600);
+}
+
+.reco-item.level-positive {
+    border-left-color: var(--fern-600);
+}
+
+.reco-item.level-positive .reco-icon {
+    background: var(--sprout-100);
+    color: var(--fern-600);
+}
+
+.analytics-tabs .nav-link {
+    color: var(--ink-600);
+    font-weight: 600;
+    border: none;
+    border-bottom: 2.5px solid transparent;
+    border-radius: 0;
+    padding: 0.6rem 1rem;
+}
+
+.analytics-tabs .nav-link:hover {
+    color: var(--fern-600);
+}
+
+.analytics-tabs .nav-link.active {
+    color: var(--canopy-900);
+    background: transparent;
+    border-bottom-color: var(--fern-600);
 }
 
 @keyframes riseIn {
@@ -1027,5 +1727,815 @@ button:focus-visible,
         animation-iteration-count: 1 !important;
         scroll-behavior: auto !important;
         transition-duration: 0.001ms !important;
+    }
+}
+
+/* ==========================================================================
+   Notification centre — shared bell, unread badge, and Meta-style dropdown.
+   The bell renders in both the sidebar (dark rail) and the mobile top bar;
+   a single fixed panel is shared by both triggers.
+   ========================================================================== */
+
+.notif-bell {
+    position: relative;
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    color: #d9e6dd;
+    background: rgba(255, 255, 255, 0.08);
+    font-size: 1.15rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.notif-bell:hover,
+.notif-bell:focus-visible,
+.notif-bell[aria-expanded="true"] {
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    outline: none;
+}
+
+/* Rendered inline with the officer-chip + Logout button in each page's
+   header (light "paper" background), so it needs its own light-mode
+   styling instead of the dark-sidebar defaults above. */
+.notif-bell-header {
+    width: 38px;
+    height: 38px;
+    border: 1px solid var(--line);
+    color: var(--fern-600);
+    background: var(--sprout-150);
+    font-size: 1.05rem;
+}
+
+.notif-bell-header:hover,
+.notif-bell-header:focus-visible,
+.notif-bell-header[aria-expanded="true"] {
+    background: var(--fern-600);
+    color: #fff;
+    border-color: var(--fern-600);
+}
+
+.notif-badge {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--rust-600);
+    color: #fff;
+    font-size: 0.68rem;
+    font-weight: 700;
+    line-height: 1;
+    border: 2px solid var(--canopy-950);
+    box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+
+.notif-bell-header .notif-badge {
+    border-color: var(--paper);
+}
+
+.notif-badge[hidden] {
+    display: none;
+}
+
+.notif-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1080;
+    background: transparent;
+}
+
+.notif-panel {
+    /* Anchored top-right to match the bell's new spot beside the
+       officer-chip/Logout row in each page's header, rather than the
+       sidebar's former top-left position. */
+    position: fixed;
+    top: 96px;
+    right: clamp(1rem, 3vw, 2.35rem);
+    z-index: 1090;
+    width: 384px;
+    max-width: calc(100vw - 2rem);
+    max-height: calc(100vh - 96px);
+    display: flex;
+    flex-direction: column;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 20px -6px rgba(18, 36, 29, 0.25), 0 24px 48px -20px rgba(18, 36, 29, 0.45);
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+    transform-origin: top right;
+    transition: opacity 0.16s ease, transform 0.16s ease;
+    pointer-events: none;
+}
+
+.notif-panel.is-open {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+.notif-panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.9rem 1.1rem 0.7rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.notif-panel-title {
+    font-family: "Fraunces", Georgia, serif;
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: var(--ink-900);
+}
+
+.notif-markall {
+    border: 0;
+    background: transparent;
+    color: var(--fern-600);
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 0.3rem 0.5rem;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.notif-markall:hover:not(:disabled) {
+    background: var(--sprout-100);
+}
+
+.notif-markall:disabled {
+    color: var(--ink-400);
+    cursor: default;
+}
+
+.notif-list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 0.35rem;
+    scrollbar-width: thin;
+}
+
+.notif-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.15rem;
+    border-radius: var(--radius-md);
+    transition: background-color 0.12s ease;
+}
+
+.notif-item:hover {
+    background: var(--sprout-100);
+}
+
+.notif-item.is-unread {
+    background: rgba(45, 106, 79, 0.06);
+}
+
+.notif-item.is-unread:hover {
+    background: rgba(45, 106, 79, 0.11);
+}
+
+/* Click-through content: navigates to the notification's target and marks
+   it read. Actions (mark unread, delete) live outside this button so they
+   aren't nested inside it. */
+.notif-item-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.7rem 0.5rem 0.7rem 0.75rem;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.notif-item-main:focus-visible {
+    outline: 2px solid var(--fern-500);
+    outline-offset: -2px;
+}
+
+.notif-item-actions {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+    padding-right: 0.4rem;
+}
+
+.notif-action {
+    width: 28px;
+    height: 28px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--ink-400);
+    font-size: 0.88rem;
+    cursor: pointer;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.notif-action:hover,
+.notif-action:focus-visible {
+    background: var(--sprout-150);
+    color: var(--fern-600);
+    outline: none;
+}
+
+.notif-action-delete:hover,
+.notif-action-delete:focus-visible {
+    background: var(--rust-100);
+    color: var(--rust-600);
+}
+
+.notif-ico {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 1.05rem;
+}
+
+.notif-ico.accent-fern {
+    background: var(--sprout-150);
+    color: var(--fern-600);
+}
+
+.notif-ico.accent-teal {
+    background: var(--teal-100);
+    color: var(--teal-600);
+}
+
+.notif-ico.accent-amber {
+    background: var(--amber-100);
+    color: var(--amber-600);
+}
+
+.notif-ico.accent-rust {
+    background: var(--rust-100);
+    color: var(--rust-600);
+}
+
+.notif-body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.notif-title {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--ink-900);
+    line-height: 1.25;
+}
+
+.notif-msg {
+    font-size: 0.82rem;
+    color: var(--ink-600);
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.notif-when {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--fern-500);
+    margin-top: 0.15rem;
+}
+
+.notif-item:not(.is-unread) .notif-when {
+    color: var(--ink-400);
+    font-weight: 500;
+}
+
+.notif-dot {
+    flex-shrink: 0;
+    align-self: center;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--fern-500);
+}
+
+.notif-state {
+    padding: 2.25rem 1rem;
+    text-align: center;
+    color: var(--ink-400);
+    font-size: 0.86rem;
+}
+
+.notif-state i {
+    font-size: 1.6rem;
+}
+
+.notif-panel-foot {
+    padding: 0.6rem 0.75rem 0.75rem;
+    border-top: 1px solid var(--line);
+}
+
+@media (max-width: 991.98px) {
+    .notif-panel {
+        top: auto;
+        bottom: 0;
+        left: 0;
+        right: auto;
+        width: 100%;
+        max-width: 100%;
+        max-height: 82vh;
+        border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+        transform-origin: bottom center;
+        transform: translateY(16px);
+    }
+
+    .notif-panel.is-open {
+        transform: translateY(0);
+    }
+
+    .notif-backdrop {
+        background: rgba(18, 36, 29, 0.35);
+    }
+}
+
+/* ============================================================
+   Geomapping (Leaflet) — shared map containers used by area
+   management, permit/report location maps, planting sites, and
+   the analytics geographic tab. Heights only; Leaflet's own CSS
+   handles the internals.
+   ============================================================ */
+.geo-map {
+    width: 100%;
+    height: 380px;
+    border-radius: var(--radius-md, 12px);
+    border: 1px solid rgba(74, 124, 89, 0.25);
+    z-index: 0;
+}
+
+.geo-map-tall {
+    height: 520px;
+}
+
+.geo-map-compact {
+    height: 260px;
+}
+
+/* The container's z-index: 0 creates a stacking context that keeps every
+   internal Leaflet pane/control under the app's sticky nav, offcanvas, and
+   modals without disturbing Leaflet's own pane ordering. */
+
+.geo-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    font-size: 0.82rem;
+    margin-top: 0.5rem;
+}
+
+.geo-legend .legend-swatch {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    margin-right: 0.3rem;
+    vertical-align: -1px;
+}
+
+/* ============================================================
+   Permit status tracker — Community-facing "where is my
+   application" horizontal stepper (Submitted -> ... -> Completed),
+   in the style of a delivery-tracking progress bar.
+   ============================================================ */
+.status-tracker {
+    display: flex;
+    align-items: flex-start;
+    width: 100%;
+    overflow-x: auto;
+    padding: 0.5rem 0.25rem 0.75rem;
+}
+
+.status-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 0 0 auto;
+    width: 108px;
+    text-align: center;
+}
+
+.status-step-circle {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-size: 1.15rem;
+    border: 2px solid var(--line);
+    background: var(--paper);
+    color: var(--ink-400);
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.status-step-label {
+    margin-top: 0.5rem;
+    font-size: 0.76rem;
+    font-weight: 600;
+    color: var(--ink-400);
+    line-height: 1.25;
+    padding: 0 0.15rem;
+}
+
+.status-step-line {
+    flex: 1 1 auto;
+    height: 3px;
+    min-width: 16px;
+    margin-top: 23px;
+    background: var(--line);
+}
+
+.status-step-done .status-step-circle {
+    background: var(--fern-600);
+    border-color: var(--fern-600);
+    color: #fff;
+}
+
+.status-step-done .status-step-label {
+    color: var(--ink-900);
+}
+
+.status-step-line-done {
+    background: var(--fern-600);
+}
+
+.status-step-current .status-step-circle {
+    background: var(--sprout-150);
+    border-color: var(--fern-600);
+    color: var(--fern-600);
+    box-shadow: 0 0 0 4px rgba(45, 106, 79, 0.14);
+}
+
+.status-step-current .status-step-label {
+    color: var(--fern-600);
+    font-weight: 700;
+}
+
+.status-step-failed .status-step-circle {
+    background: var(--rust-600);
+    border-color: var(--rust-600);
+    color: #fff;
+}
+
+.status-step-failed .status-step-label {
+    color: var(--rust-600);
+    font-weight: 700;
+}
+
+.status-step-line-failed {
+    background: var(--rust-600);
+}
+
+.status-step-expired .status-step-circle {
+    background: var(--amber-100);
+    border-color: var(--amber-600);
+    color: var(--amber-600);
+}
+
+.status-step-expired .status-step-label {
+    color: var(--amber-600);
+    font-weight: 700;
+}
+
+.status-step-upcoming .status-step-circle {
+    background: var(--paper);
+    border-color: var(--line);
+    color: var(--ink-400);
+}
+
+.status-step-skipped {
+    opacity: 0.45;
+}
+
+.status-step-skipped .status-step-circle {
+    background: var(--paper);
+    border-color: var(--line);
+    color: var(--ink-400);
+}
+
+@media (max-width: 575.98px) {
+    .status-step {
+        width: 84px;
+    }
+
+    .status-step-circle {
+        width: 38px;
+        height: 38px;
+        font-size: 1rem;
+    }
+
+    .status-step-label {
+        font-size: 0.68rem;
+    }
+
+    .status-step-line {
+        margin-top: 20px;
+    }
+}
+
+/* ============================================================
+   Page sub-navigation — jump links for long, information-dense
+   detail pages (e.g. the RPS permit application view), so related
+   content stays grouped into sections instead of one long scroll.
+   ============================================================ */
+.page-subnav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    padding: 0.55rem 0.6rem;
+    margin: 0 0 1.25rem;
+    background: rgba(246, 244, 236, 0.94);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-card);
+}
+
+.page-subnav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: 999px;
+    font-size: 0.83rem;
+    font-weight: 600;
+    color: var(--ink-600);
+    background: transparent;
+    white-space: nowrap;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.page-subnav-link i {
+    font-size: 0.95rem;
+}
+
+.page-subnav-link:hover {
+    background: var(--sprout-100);
+    color: var(--fern-600);
+}
+
+.page-subnav-link.active {
+    background: var(--fern-600);
+    color: #fff;
+}
+
+.page-anchor-section {
+    scroll-margin-top: 90px;
+}
+
+@media (min-width: 768px) {
+    .page-subnav {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+    }
+}
+
+/* ==========================================================================
+   MOBILE COMPATIBILITY LAYER
+   --------------------------------------------------------------------------
+   Everything below applies ONLY at tablet/phone widths (max-width media
+   queries) or through mobile-only containers, so the web/desktop layout is
+   left exactly as it was. The goal is a professional, comfortable, fully
+   usable small-screen experience without changing the desktop design.
+   ========================================================================== */
+
+/* ---- Tablet and below: sidebar is collapsed into the sticky top bar ---- */
+@media (max-width: 991.98px) {
+    .main {
+        padding-left: clamp(0.85rem, 4vw, 1.5rem);
+        padding-right: clamp(0.85rem, 4vw, 1.5rem);
+        padding-bottom: 2rem;
+    }
+
+    /* Long words / references (emails, transaction IDs) wrap instead of
+       widening their container past the screen. Wide data tables keep
+       scrolling inside their own .table-responsive wrapper (handled below),
+       which is the intended UX. Note: no page-level `overflow-x` guard is
+       used here on purpose — setting it on html/body would make the body a
+       scroll container and break the sticky mobile top bar. */
+    .docket-sub,
+    .snapshot-row,
+    .meta-copy,
+    .user-detail-list dd {
+        overflow-wrap: anywhere;
+    }
+
+    /* Shrink the decorative seal so it never crowds the header heading. */
+    .seal-watermark {
+        width: 150px;
+        height: 150px;
+        top: -24px;
+        right: -24px;
+    }
+
+    /* Horizontally scrollable tables: momentum scrolling on iOS plus a thin,
+       visible scrollbar so it is obvious the table can be swiped sideways. */
+    .table-responsive {
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(45, 106, 79, 0.35) transparent;
+    }
+
+    .table-responsive::-webkit-scrollbar {
+        height: 7px;
+    }
+
+    .table-responsive::-webkit-scrollbar-thumb {
+        background: rgba(45, 106, 79, 0.3);
+        border-radius: 8px;
+    }
+
+    /* A sticky side panel would otherwise float over the now stacked content. */
+    .snapshot-panel.snapshot-sticky {
+        position: static;
+    }
+
+    /* Trimmer chart and map heights so they fit a phone viewport nicely. */
+    .chart-frame {
+        height: 260px;
+    }
+
+    .chart-frame.chart-frame-sm {
+        height: 210px;
+    }
+
+    .geo-map {
+        height: 320px;
+    }
+
+    .geo-map-tall {
+        height: 380px;
+    }
+
+    /* Analytics tab bar scrolls sideways instead of wrapping into a tall,
+       ragged stack. */
+    .analytics-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .analytics-tabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .analytics-tabs .nav-link {
+        white-space: nowrap;
+    }
+}
+
+/* ---- Phones ---- */
+@media (max-width: 767.98px) {
+    /* The header action cluster (notification bell + identity chip + Logout)
+       wraps so nothing is ever pushed off-screen, regardless of how long the
+       signed-in user's name is. Targets only the inner action row: the outer
+       header wrapper uses `align-items-md-center`, so it is not matched. */
+    .page-header .d-flex.align-items-center {
+        flex-wrap: wrap;
+    }
+
+    .officer-chip {
+        max-width: 100%;
+    }
+
+    /* Table-tools toolbar stacks cleanly: full-width search, full-width
+       filters, and the result count on its own line. */
+    .tt-toolbar {
+        gap: 0.55rem;
+    }
+
+    .tt-search {
+        flex: 1 1 100%;
+        max-width: 100%;
+    }
+
+    .tt-filter {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
+
+    .tt-count {
+        flex: 1 1 100%;
+        margin-left: 0;
+    }
+
+    .tt-footer {
+        justify-content: center;
+    }
+
+    .tt-pager {
+        justify-content: center;
+    }
+
+    /* Slightly denser table cells so more is legible per swipe. */
+    .table-responsive .table > :not(caption) > * > * {
+        padding-top: 0.6rem;
+        padding-bottom: 0.6rem;
+    }
+
+    /* Keep the effective input font at 16px on phones so iOS Safari does not
+       auto-zoom the viewport when a field is focused. */
+    .form-control,
+    .form-select,
+    .form-control-sm,
+    .form-select-sm,
+    input[type="text"],
+    input[type="search"],
+    input[type="email"],
+    input[type="password"],
+    input[type="number"],
+    input[type="date"],
+    input[type="tel"],
+    textarea {
+        font-size: 16px;
+    }
+
+    /* Comfortable touch targets for icon-only action buttons. */
+    .icon-action {
+        width: 40px;
+        height: 40px;
+    }
+
+    /* Page sub-nav becomes a single swipeable strip rather than a tall wrap. */
+    .page-subnav {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .page-subnav::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* A touch more breathing room inside panels on narrow screens. */
+    .docket-panel,
+    .snapshot-panel {
+        padding: 1.1rem 1.15rem;
+    }
+}
+
+/* ---- Small phones ---- */
+@media (max-width: 575.98px) {
+    .page-title {
+        font-size: 1.3rem;
+    }
+
+    /* Let the Logout button share the header action row width evenly. */
+    .btn-logout-outline {
+        flex: 1 1 auto;
+    }
+
+    /* Metric figures scale down slightly so large numbers never clip. */
+    .ledger-value {
+        font-size: 1.6rem;
+    }
+
+    .metric-value {
+        font-size: 1.55rem;
+    }
+
+    /* Roomier modal on tiny screens. */
+    .modal-dialog {
+        margin: 0.5rem;
     }
 }
