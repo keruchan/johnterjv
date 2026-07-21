@@ -110,7 +110,7 @@ function account_status_error(string $status): ?string
 {
     return match ($status) {
         'active' => null,
-        'pending' => 'Your account is still pending approval by CENRO.',
+        'pending' => 'Your account is not yet verified. Please check your email for the verification link.',
         'suspended' => 'Your account is suspended. Please contact CENRO for assistance.',
         'disabled' => 'Your account is deactivated. Please contact CENRO for assistance.',
         default => 'Your account is inactive and cannot sign in. Please contact CENRO for assistance.',

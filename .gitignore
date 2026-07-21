@@ -1,0 +1,2 @@
+# SMTP credentials — never commit
+config/mail_config.php

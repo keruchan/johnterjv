@@ -22,6 +22,7 @@
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/user.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/email_verification.php';
 
 // ------------------------------------------------------------
 // Initial page state
@@ -128,10 +129,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':status'   => $status,
                 ]);
 
+                $newUserId = (int) $pdo->lastInsertId();
+
+                // Self-service email verification: a valid link activates the
+                // account instantly. Manual CENRO activation remains available
+                // as a fallback if the email never arrives.
+                issueVerificationEmail($pdo, $newUserId, $formData['email'], $formData['fname']);
+
                 // Rotate the token after a successful write so the submitted
                 // token cannot be reused.
                 $_SESSION['csrf_register_token'] = bin2hex(random_bytes(32));
-                $_SESSION['register_success'] = 'Registration submitted successfully. Your account is pending approval by CENRO.';
+                $_SESSION['register_success'] = 'Registration submitted successfully. Check your email (' . $formData['email'] . ') for a verification link to activate your account.';
 
                 header('Location: register.php');
                 exit;
@@ -187,8 +195,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     <p class="mb-3 opacity-75">Apply for permits, request seedlings, and report illegal logging — all in one account.</p>
 
                                     <div class="auth-note p-2 px-3">
-                                        <p class="note-title mb-1"><i class="bi bi-shield-check me-1"></i>Account review</p>
-                                        <p class="small text-secondary mb-0">New registrations stay pending until CENRO approves them.</p>
+                                        <p class="note-title mb-1"><i class="bi bi-envelope-check me-1"></i>Email verification</p>
+                                        <p class="small text-secondary mb-0">After registering, check your email for a verification link to activate your account instantly.</p>
                                     </div>
                                 </div>
                             </div>
@@ -203,6 +211,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                             <?php echo e($successMessage); ?>
                                             <div class="mt-2">
                                                 <a class="alert-link" href="login.php">Go to login</a>
+                                                &middot;
+                                                <a class="alert-link" href="resend_verification.php">Resend verification email</a>
                                             </div>
                                         </div>
                                     <?php endif; ?>

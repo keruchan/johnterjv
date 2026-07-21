@@ -77,6 +77,46 @@ SQL;
          MODIFY `status` ENUM('pending','active','suspended','disabled') NOT NULL DEFAULT 'pending'"
     );
 
+    // Existing installations predate self-service email verification for
+    // Community accounts. Add the columns individually so re-running this
+    // script on an already-migrated database is a no-op.
+    $userVerificationColumnDefinitions = [
+        'email_verified_at' => "DATETIME DEFAULT NULL COMMENT 'Set when the user clicks the emailed verification link' AFTER `status`",
+        'email_verify_token' => "VARCHAR(64) DEFAULT NULL COMMENT 'SHA-256 hash of the pending verification token' AFTER `email_verified_at`",
+        'email_verify_expires' => "DATETIME DEFAULT NULL AFTER `email_verify_token`",
+    ];
+    $userVerificationColumnLookup = $pdo->prepare(
+        "SELECT COUNT(*)
+         FROM information_schema.COLUMNS
+         WHERE TABLE_SCHEMA = :schema_name
+           AND TABLE_NAME = 'tbl_users'
+           AND COLUMN_NAME = :column_name"
+    );
+    foreach ($userVerificationColumnDefinitions as $columnName => $definition) {
+        $userVerificationColumnLookup->execute([
+            ':schema_name' => $dbName,
+            ':column_name' => $columnName,
+        ]);
+        if ((int) $userVerificationColumnLookup->fetchColumn() === 0) {
+            $pdo->exec(
+                'ALTER TABLE `tbl_users` ADD COLUMN `'
+                . $columnName . '` ' . $definition
+            );
+        }
+    }
+    $userVerificationIndexLookup = $pdo->prepare(
+        "SELECT COUNT(*)
+         FROM information_schema.STATISTICS
+         WHERE TABLE_SCHEMA = :schema_name
+           AND TABLE_NAME = 'tbl_users'
+           AND INDEX_NAME = 'idx_email_verify_token'"
+    );
+    $userVerificationIndexLookup->execute([':schema_name' => $dbName]);
+    if ((int) $userVerificationIndexLookup->fetchColumn() === 0) {
+        $pdo->exec('ALTER TABLE `tbl_users` ADD KEY `idx_email_verify_token` (`email_verify_token`)');
+    }
+    echo "Email verification columns are ready.<br>\n";
+
     $createPermissionsTable = <<<SQL
 CREATE TABLE IF NOT EXISTS `tbl_user_permissions` (
   `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

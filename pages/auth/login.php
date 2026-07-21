@@ -45,6 +45,7 @@ if (!empty($_SESSION['id']) && !empty($_SESSION['role'])) {
 
 $errors = [];
 $loginIdentifier = '';
+$showResendLink = false;
 
 // A session-timeout redirect carries a fixed reason code (never raw user
 // input) so the login page can explain why the user was signed out.
@@ -118,6 +119,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } elseif (($statusError = account_status_error((string) $user['status'])) !== null) {
                     record_login_attempt($pdo, $normalizedIdentifier, (int) $user['id'], false);
                     $errors[] = $statusError;
+                    // "pending" for a community account means "awaiting email
+                    // verification" — offer a way to get a fresh link. Staff
+                    // roles are never created with pending status, so this
+                    // link is only ever relevant to Community applicants.
+                    $showResendLink = ((string) $user['status'] === 'pending');
                 } else {
                     $dashboardPath = dashboard_path_for_role((string) $user['role']);
 
@@ -226,6 +232,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                     <li><?php echo e($error); ?></li>
                                                 <?php endforeach; ?>
                                             </ul>
+                                            <?php if ($showResendLink): ?>
+                                                <div class="mt-2">
+                                                    <a class="alert-link" href="resend_verification.php">Resend verification email</a>
+                                                </div>
+                                            <?php endif; ?>
                                         </div>
                                     <?php endif; ?>
 
