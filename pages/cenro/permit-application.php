@@ -51,7 +51,6 @@ try {
     $originalReviews = $canViewDocuments
         ? (permit_original_reviews_for_actor($pdo, $applicationId, $userId) ?? [])
         : [];
-    $receivingPersonnel = $canReviewOriginals ? permit_original_receiving_personnel($pdo) : [];
     $inspections = permit_inspections_for_actor($pdo, $applicationId, $userId) ?? [];
     $inspectionPersonnel = $canManageInspections ? permit_inspection_personnel($pdo) : [];
     $decisionEvents = $canDecideApplications
@@ -119,7 +118,7 @@ if (!empty($_SESSION['permit_decision_flash']) && is_array($_SESSION['permit_dec
     unset($_SESSION['permit_decision_flash']);
 }
 
-$catalog = permit_document_type_catalog();
+$catalog = permit_document_type_catalog($application);
 $currentDocuments = permit_current_documents_by_type($documents);
 $latestOriginalReviews = permit_latest_original_reviews_by_type($originalReviews);
 $originalProgress = permit_original_required_progress($catalog, $currentDocuments, $latestOriginalReviews);
@@ -518,62 +517,112 @@ try {
 
             <?php if ($canViewDocuments): ?>
             <section class="docket-panel page-anchor-section" id="documents" aria-labelledby="documents-heading">
-                <div class="section-heading"><h2 id="documents-heading">Permit Document Review</h2><span class="section-note">Scans and originals remain separate</span></div>
-                <div class="alert alert-warning" role="note"><i class="bi bi-exclamation-triangle me-1"></i>Accepting the scan doesn't verify the original hardcopy or wet-ink signature. Original-document decisions below are separate and never approve the application.</div>
+                <div class="section-heading"><h2 id="documents-heading">Permit Document Review</h2><span class="section-note"><?php echo e((string) ($application['permit_code'] ?? 'Unclassified')); ?> checklist</span></div>
                 <?php if ($reviewLockReason !== null): ?><div class="alert alert-light border"><i class="bi bi-lock me-1"></i><?php echo e($reviewLockReason); ?> Downloads and history stay available.</div><?php endif; ?>
                 <div class="row g-3 mb-4">
                     <div class="col-lg-6"><div class="border rounded p-3 h-100"><div class="d-flex justify-content-between small mb-1"><span>Required digital scans accepted</span><span class="fw-semibold"><?php echo $acceptedCount; ?> of <?php echo $requiredCount; ?></span></div><div class="progress" role="progressbar" aria-label="Required online scans" aria-valuenow="<?php echo $progress; ?>" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: <?php echo $progress; ?>%"><?php echo $progress; ?>%</div></div></div></div>
                     <div class="col-lg-6"><div class="border rounded p-3 h-100"><div class="d-flex justify-content-between small mb-1"><span>Required originals verified</span><span class="fw-semibold"><?php echo (int) $originalProgress['verified']; ?> of <?php echo (int) $originalProgress['required']; ?></span></div><div class="progress" role="progressbar" aria-label="Required original documents" aria-valuenow="<?php echo (int) $originalProgress['percent']; ?>" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: <?php echo (int) $originalProgress['percent']; ?>%"><?php echo (int) $originalProgress['percent']; ?>%</div></div></div></div>
-                    <div class="col-12"><div class="form-text">The document checklist remains provisional pending confirmation of official RPS requirements.</div></div>
                 </div>
 
-                <div class="table-responsive">
-                    <table class="table align-middle">
-                        <thead><tr><th>Document type</th><th>Current online scan</th><th>Original hardcopy verification</th><th class="text-end">Actions</th></tr></thead>
-                        <tbody>
-                            <?php foreach ($catalog as $type => $definition): ?>
-                                <?php
-                                $document = $currentDocuments[$type] ?? null;
-                                $original = $latestOriginalReviews[$type] ?? null;
-                                $originalMatchesCurrent = permit_original_review_matches_document($original, $document);
-                                ?>
-                                <tr>
-                                    <td><div class="fw-semibold"><?php echo e((string) $definition['label']); ?></div><small class="text-secondary"><?php echo !empty($definition['required']) ? 'Required' : 'Optional'; ?></small></td>
-                                    <td>
-                                        <?php if ($document === null): ?>
-                                            <span class="text-secondary">No current scan uploaded.</span>
-                                        <?php else: ?>
-                                            <div class="text-break fw-semibold"><?php echo e((string) $document['original_filename']); ?></div>
-                                            <small class="text-secondary"><?php echo e(number_format((int) $document['file_size_bytes'] / 1024, 1)); ?> KB &middot; <?php echo e((string) $document['uploader_name']); ?></small>
-                                            <div class="mt-1"><span class="badge <?php echo e(permit_document_status_badge((string) $document['verification_status'])); ?>"><?php echo e(permit_document_status_label((string) $document['verification_status'])); ?></span></div>
-                                            <?php if (!empty($document['verification_notes'])): ?><div class="small mt-1 text-break"><?php echo e((string) $document['verification_notes']); ?></div><?php endif; ?>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td>
-                                        <?php if ($original === null): ?>
-                                            <span class="text-secondary">No original verification recorded.</span>
-                                        <?php else: ?>
-                                            <span class="badge <?php echo e(permit_original_review_status_badge((string) $original['review_status'])); ?>"><?php echo e(permit_original_review_status_label((string) $original['review_status'])); ?></span>
-                                            <?php if (!$originalMatchesCurrent && $document !== null): ?><div class="small text-warning-emphasis mt-1"><i class="bi bi-arrow-repeat"></i> Not recorded against the current scan; re-verification required.</div><?php endif; ?>
-                                            <div class="small mt-2">Received: <strong><?php echo (int) $original['original_received'] === 1 ? 'Yes' : 'No'; ?></strong><?php if ((int) $original['original_received'] === 1): ?> &middot; <?php echo e(date('M j, Y', strtotime((string) $original['original_received_on']))); ?> by <?php echo e((string) $original['receiver_name']); ?><?php endif; ?></div>
-                                            <div class="small">Wet-ink: <?php echo (int) $original['wet_ink_required'] === 1 ? ((int) $original['wet_ink_verified'] === 1 ? 'Required and verified' : 'Required, not verified') : 'Not required'; ?></div>
-                                            <div class="small">Scan compared: <?php echo (int) $original['scan_compared_with_original'] === 1 ? 'Yes' : 'No'; ?></div>
-                                            <div class="small text-secondary">Verified by <?php echo e((string) $original['verifier_name']); ?> &middot; <?php echo e(date('M j, Y g:i A', strtotime((string) $original['reviewed_at']))); ?></div>
-                                            <?php if (!empty($original['review_notes'])): ?><div class="small mt-1 text-break"><strong>Remarks:</strong> <?php echo e((string) $original['review_notes']); ?></div><?php endif; ?>
-                                        <?php endif; ?>
-                                    </td>
-                                    <td class="text-end">
-                                        <div class="d-flex flex-wrap justify-content-end gap-1">
+                <form method="post" action="permit-document-review.php" id="batch-review-form">
+                    <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_document_review_token']); ?>">
+                    <input type="hidden" name="application_id" value="<?php echo (int) $application['id']; ?>">
+
+                    <div class="table-responsive">
+                        <table class="table align-middle">
+                            <thead><tr><th>Requirement</th><th>Submitted scan</th><th>Original + fees</th><th class="text-center">Needs replacement</th><th class="text-end">File</th></tr></thead>
+                            <tbody>
+                                <?php foreach ($catalog as $type => $definition): ?>
+                                    <?php
+                                    $document = $currentDocuments[$type] ?? null;
+                                    $original = $latestOriginalReviews[$type] ?? null;
+                                    ?>
+                                    <tr>
+                                        <td>
+                                            <div class="fw-semibold"><?php echo e((string) $definition['label']); ?></div>
+                                            <small class="text-secondary">
+                                                <?php echo !empty($definition['required']) ? 'Required' : 'Optional'; ?>
+                                                <?php if (($definition['group'] ?? '') !== 'mandatory'): ?>
+                                                    &middot; <?php echo e(ucfirst((string) $definition['group'])); ?>
+                                                <?php endif; ?>
+                                                <?php if (($definition['description'] ?? '') !== ''): ?>
+                                                    <div><?php echo e((string) $definition['description']); ?></div>
+                                                <?php endif; ?>
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <?php if ($document === null): ?>
+                                                <span class="text-secondary">Not uploaded yet.</span>
+                                            <?php else: ?>
+                                                <div class="text-break fw-semibold"><?php echo e((string) $document['original_filename']); ?></div>
+                                                <small class="text-secondary"><?php echo e(number_format((int) $document['file_size_bytes'] / 1024, 1)); ?> KB &middot; <?php echo e((string) $document['uploader_name']); ?></small>
+                                                <div class="mt-1"><span class="badge <?php echo e(permit_document_status_badge((string) $document['verification_status'])); ?>"><?php echo e(permit_document_status_label((string) $document['verification_status'])); ?></span></div>
+                                                <?php if (!empty($document['verification_notes'])): ?><div class="small mt-1 text-break"><?php echo e((string) $document['verification_notes']); ?></div><?php endif; ?>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if ($original === null): ?>
+                                                <span class="text-secondary">Not yet verified.</span>
+                                            <?php else: ?>
+                                                <span class="badge <?php echo e(permit_original_review_status_badge((string) $original['review_status'])); ?>"><?php echo e(permit_original_review_status_label((string) $original['review_status'])); ?></span>
+                                                <div class="small text-secondary mt-1">
+                                                    <?php echo e(date('M j, Y', strtotime((string) $original['original_received_on']))); ?>
+                                                    &middot; <?php echo e((string) $original['verifier_name']); ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="text-center">
+                                            <?php if ($document !== null && $reviewLockReason === null && $currentRole === 'rps'): ?>
+                                                <input class="form-check-input" type="checkbox" name="replace[]" value="<?php echo (int) $document['id']; ?>" aria-label="Request replacement for <?php echo e((string) $definition['label']); ?>">
+                                            <?php else: ?>
+                                                <span class="text-secondary">-</span>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td class="text-end">
                                             <?php if ($document !== null): ?><a class="btn btn-sm btn-outline-secondary" href="permit-document-download.php?id=<?php echo e((string) $document['id']); ?>"><i class="bi bi-download"></i> Download</a><?php endif; ?>
-                                            <?php if ($document !== null && $reviewLockReason === null && $currentRole === 'rps'): ?><button type="button" class="btn btn-sm btn-outline-primary review-document" data-bs-toggle="modal" data-bs-target="#reviewDocumentModal" data-document-id="<?php echo e((string) $document['id']); ?>" data-document-name="<?php echo e((string) $document['original_filename']); ?>" data-current-status="<?php echo e((string) $document['verification_status']); ?>"><i class="bi bi-clipboard-check"></i> Online review</button><?php endif; ?>
-                                            <?php if ($canReviewOriginals && $reviewLockReason === null): ?><button type="button" class="btn btn-sm btn-certreefy verify-original" data-bs-toggle="modal" data-bs-target="#verifyOriginalModal" data-document-type="<?php echo e($type); ?>" data-document-id="<?php echo e((string) ($document['id'] ?? '')); ?>" data-document-label="<?php echo e((string) $definition['label']); ?>" data-original-received="<?php echo $original !== null ? (int) $original['original_received'] : 0; ?>" data-received-on="<?php echo e((string) ($original['original_received_on'] ?? '')); ?>" data-received-by="<?php echo e((string) ($original['received_by_user_id'] ?? $userId)); ?>" data-wet-ink-required="<?php echo $original !== null ? (int) $original['wet_ink_required'] : 1; ?>" data-wet-ink-verified="<?php echo $original !== null ? (int) $original['wet_ink_verified'] : 0; ?>" data-scan-compared="<?php echo $original !== null ? (int) $original['scan_compared_with_original'] : 0; ?>" data-review-status="<?php echo e((string) ($original['review_status'] ?? 'pending')); ?>" data-review-notes="<?php echo e((string) ($original['review_notes'] ?? '')); ?>"><i class="bi bi-file-earmark-check"></i> Verify original</button><?php endif; ?>
-                                        </div>
-                                    </td>
-                                </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <?php if ($reviewLockReason === null && $currentRole === 'rps'): ?>
+                        <div class="border rounded p-3 mb-3">
+                            <p class="fw-semibold mb-1">Step 1 &middot; Initial online documents</p>
+                            <p class="small text-secondary">Tick only the documents the applicant must replace. Leave everything unticked to approve the whole set in one click.</p>
+                            <label for="review_notes" class="form-label">Remarks <span class="small text-secondary">(required only when requesting a replacement)</span></label>
+                            <textarea class="form-control mb-3" id="review_notes" name="review_notes" rows="2" maxlength="1000"></textarea>
+                            <button type="submit" class="btn btn-certreefy"><i class="bi bi-check2-circle me-1"></i>Submit document review</button>
+                        </div>
+                    <?php endif; ?>
+                </form>
+
+                <?php if ($canReviewOriginals && $reviewLockReason === null): ?>
+                    <?php
+                    $feesSettled = (string) ($application['fees_status'] ?? 'unpaid') === 'paid';
+                    $assessedTotal = (float) ($application['total_fee'] ?? 0);
+                    ?>
+                    <form method="post" action="permit-original-document-review.php" class="border rounded p-3 mb-3">
+                        <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_original_review_token']); ?>">
+                        <input type="hidden" name="application_id" value="<?php echo (int) $application['id']; ?>">
+                        <p class="fw-semibold mb-1">Step 2 &middot; Original documents and fees</p>
+                        <p class="small text-secondary mb-2">Confirms in one click that the applicant presented every original hardcopy and settled the assessed fees at the office.</p>
+                        <div class="row g-2 small mb-3">
+                            <div class="col-sm-3">Certification <span class="fw-semibold"><?php echo e(permit_matrix_format_peso((float) ($application['certification_fee'] ?? 0))); ?></span></div>
+                            <div class="col-sm-3">Oath <span class="fw-semibold"><?php echo e(permit_matrix_format_peso((float) ($application['oath_fee'] ?? 0))); ?></span></div>
+                            <div class="col-sm-3">Inventory <span class="fw-semibold"><?php echo e(permit_matrix_format_peso((float) ($application['inventory_fee'] ?? 0))); ?></span></div>
+                            <div class="col-sm-3">Total <span class="fw-semibold"><?php echo e(permit_matrix_format_peso($assessedTotal)); ?></span></div>
+                        </div>
+                        <?php if ($feesSettled): ?>
+                            <div class="alert alert-success mb-0 py-2"><i class="bi bi-check-circle me-1"></i>Originals verified and fees recorded as received<?php if (!empty($application['fees_confirmed_at'])): ?> on <?php echo e(date('M j, Y g:i A', strtotime((string) $application['fees_confirmed_at']))); ?><?php endif; ?>.</div>
+                        <?php else: ?>
+                            <label for="original_notes" class="form-label">Remarks <span class="small text-secondary">(optional)</span></label>
+                            <textarea class="form-control mb-3" id="original_notes" name="review_notes" rows="2" maxlength="1000"></textarea>
+                            <button type="submit" class="btn btn-certreefy"><i class="bi bi-file-earmark-check me-1"></i>Verify originals and fees received</button>
+                        <?php endif; ?>
+                    </form>
+                <?php endif; ?>
 
                 <?php $history = array_values(array_filter($documents, static fn (array $document): bool => (int) $document['is_current'] !== 1)); ?>
                 <?php if ($history !== []): ?><h3 class="h5 mt-4">Scan Replacement History</h3><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Type</th><th>Filename</th><th>Archived status</th><th>Uploaded</th><th class="text-end">File</th></tr></thead><tbody><?php foreach ($history as $document): ?><?php $definition = permit_document_type((string) $document['document_type']); ?><tr><td><?php echo e((string) ($definition['label'] ?? $document['document_type'])); ?></td><td class="text-break"><?php echo e((string) $document['original_filename']); ?></td><td><span class="badge text-bg-secondary"><?php echo e(permit_document_status_label((string) $document['verification_status'], false)); ?></span></td><td><?php echo e(date('M j, Y g:i A', strtotime((string) $document['created_at']))); ?></td><td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="permit-document-download.php?id=<?php echo e((string) $document['id']); ?>"><i class="bi bi-download"></i> Download</a></td></tr><?php endforeach; ?></tbody></table></div><?php endif; ?>
@@ -705,45 +754,6 @@ try {
     </div>
     <?php endif; ?>
 
-    <?php if ($canReviewOriginals): ?>
-    <div class="modal fade" id="reviewDocumentModal" tabindex="-1" aria-labelledby="reviewDocumentModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form method="post" action="permit-document-review.php">
-            <div class="modal-header"><div><div class="eyebrow">Online scan review</div><h2 class="modal-title fs-5" id="reviewDocumentModalLabel">Review document</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-            <div class="modal-body">
-                <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_document_review_token']); ?>"><input type="hidden" name="document_id" id="reviewDocumentId">
-                <p class="small text-secondary text-break" id="reviewDocumentName"></p>
-                <div class="mb-3"><label for="reviewStatus" class="form-label">Online review result</label><select class="form-select" id="reviewStatus" name="review_status" required><option value="accepted">Accepted online scan</option><option value="replacement_required">Replacement required</option><option value="rejected">Rejected</option></select></div>
-                <div><label for="reviewNotes" class="form-label">Review notes</label><textarea class="form-control" id="reviewNotes" name="review_notes" rows="4" maxlength="1000"></textarea><div class="form-text">Notes are required for rejection or replacement requests.</div></div>
-            </div>
-            <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-certreefy">Save online review</button></div>
-        </form></div></div>
-    </div>
-
-    <div class="modal fade" id="verifyOriginalModal" tabindex="-1" aria-labelledby="verifyOriginalModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-centered"><div class="modal-content"><form method="post" action="permit-original-document-review.php">
-            <div class="modal-header"><div><div class="eyebrow">Original hardcopy verification</div><h2 class="modal-title fs-5" id="verifyOriginalModalLabel">Verify original document</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-            <div class="modal-body">
-                <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_original_review_token']); ?>">
-                <input type="hidden" name="application_id" value="<?php echo e((string) $applicationId); ?>">
-                <input type="hidden" name="document_type" id="originalDocumentType">
-                <input type="hidden" name="expected_document_id" id="originalExpectedDocumentId">
-                <p class="fw-semibold" id="originalDocumentLabel"></p>
-                <div class="alert alert-light border small"><i class="bi bi-info-circle me-1"></i>Records a separate original-document decision; time and verifier are logged automatically.</div>
-                <div class="row g-3">
-                    <div class="col-md-6"><label for="originalReceived" class="form-label">Original hardcopy received</label><select class="form-select" id="originalReceived" name="original_received" required><option value="1">Yes</option><option value="0">No</option></select></div>
-                    <div class="col-md-6"><label for="originalReceivedOn" class="form-label">Date received</label><input class="form-control" type="date" id="originalReceivedOn" name="original_received_on" max="<?php echo e(date('Y-m-d')); ?>"></div>
-                    <div class="col-12"><label for="originalReceivedBy" class="form-label">Receiving personnel</label><select class="form-select" id="originalReceivedBy" name="received_by_user_id"><option value="">Select personnel</option><?php foreach ($receivingPersonnel as $person): ?><option value="<?php echo e((string) $person['id']); ?>"><?php echo e(trim((string) $person['fname'] . ' ' . (string) $person['lname'])); ?> (<?php echo e(strtoupper((string) $person['role'])); ?>)</option><?php endforeach; ?></select></div>
-                    <div class="col-md-6"><label for="wetInkRequired" class="form-label">Wet-ink signature required</label><select class="form-select" id="wetInkRequired" name="wet_ink_required" required><option value="1">Yes</option><option value="0">No</option></select></div>
-                    <div class="col-md-6"><label for="wetInkVerified" class="form-label">Wet-ink signature verified</label><select class="form-select" id="wetInkVerified" name="wet_ink_verified" required><option value="1">Yes</option><option value="0">No</option></select></div>
-                    <div class="col-md-6"><label for="scanCompared" class="form-label">Scan compared with original</label><select class="form-select" id="scanCompared" name="scan_compared_with_original" required><option value="1">Yes</option><option value="0">No</option></select></div>
-                    <div class="col-md-6"><label for="originalReviewStatus" class="form-label">Verification result</label><select class="form-select" id="originalReviewStatus" name="review_status" required><option value="pending">Pending verification</option><option value="verified">Verified original</option><option value="replacement_required">Replacement required</option><option value="rejected">Rejected</option></select></div>
-                    <div class="col-12"><label for="originalReviewNotes" class="form-label">Remarks</label><textarea class="form-control" id="originalReviewNotes" name="review_notes" rows="4" maxlength="1000"></textarea><div class="form-text">Remarks are required when the original is missing, rejected, requires replacement, or a required wet-ink signature is not verified.</div></div>
-                </div>
-            </div>
-            <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-certreefy">Record original verification</button></div>
-        </form></div></div>
-    </div>
-    <?php endif; ?>
 
     <script type="application/json" id="zoneMapData"><?php echo json_encode($zoneMapFeatures, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -782,64 +792,6 @@ try {
             }
         })();
     </script>
-    <?php if ($canReviewOriginals): ?>
-    <script>
-        document.querySelectorAll('.review-document').forEach((button) => {
-            button.addEventListener('click', () => {
-                document.getElementById('reviewDocumentId').value = button.dataset.documentId;
-                document.getElementById('reviewDocumentName').textContent = button.dataset.documentName;
-                const status = button.dataset.currentStatus;
-                document.getElementById('reviewStatus').value = status === 'rejected' ? 'rejected' : (status === 'replacement_required' ? 'replacement_required' : 'accepted');
-                document.getElementById('reviewNotes').value = '';
-            });
-        });
-
-        const originalReceived = document.getElementById('originalReceived');
-        const originalReceivedOn = document.getElementById('originalReceivedOn');
-        const originalReceivedBy = document.getElementById('originalReceivedBy');
-        const wetInkRequired = document.getElementById('wetInkRequired');
-        const wetInkVerified = document.getElementById('wetInkVerified');
-        const scanCompared = document.getElementById('scanCompared');
-
-        const syncOriginalFields = () => {
-            const received = originalReceived.value === '1';
-            originalReceivedOn.disabled = !received;
-            originalReceivedOn.required = received;
-            originalReceivedBy.disabled = !received;
-            originalReceivedBy.required = received;
-            if (!received) {
-                originalReceivedOn.value = '';
-                originalReceivedBy.value = '';
-                wetInkVerified.value = '0';
-                scanCompared.value = '0';
-            }
-            if (wetInkRequired.value === '0') {
-                wetInkVerified.value = '0';
-            }
-        };
-        originalReceived.addEventListener('change', syncOriginalFields);
-        wetInkRequired.addEventListener('change', syncOriginalFields);
-
-        document.querySelectorAll('.verify-original').forEach((button) => {
-            button.addEventListener('click', () => {
-                document.getElementById('originalDocumentType').value = button.dataset.documentType;
-                document.getElementById('originalExpectedDocumentId').value = button.dataset.documentId;
-                document.getElementById('originalDocumentLabel').textContent = button.dataset.documentLabel;
-                originalReceived.value = button.dataset.originalReceived;
-                originalReceivedOn.disabled = false;
-                originalReceivedOn.value = button.dataset.receivedOn;
-                originalReceivedBy.disabled = false;
-                originalReceivedBy.value = button.dataset.receivedBy;
-                wetInkRequired.value = button.dataset.wetInkRequired;
-                wetInkVerified.value = button.dataset.wetInkVerified;
-                scanCompared.value = button.dataset.scanCompared;
-                document.getElementById('originalReviewStatus').value = button.dataset.reviewStatus;
-                document.getElementById('originalReviewNotes').value = button.dataset.reviewNotes;
-                syncOriginalFields();
-            });
-        });
-    </script>
-    <?php endif; ?>
     <?php if ($canManageInspections): ?>
     <script>
         document.querySelectorAll('.inspection-schedule-button').forEach((button) => {

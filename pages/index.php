@@ -142,12 +142,10 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
       align-items:center;
       gap:.5rem;
     }
-    .navbar-certreefy .navbar-brand .logo-badge{
-      width:40px;height:40px;
-      background:linear-gradient(155deg,var(--forest-deep),var(--forest-fresh));
-      border-radius:12px;
-      display:flex;align-items:center;justify-content:center;
-      color:#fff;font-size:1.2rem;
+    .logo-badge{
+      width:44px;height:44px;
+      border-radius:50%;
+      object-fit:cover;
       flex-shrink:0;
     }
     .navbar-certreefy .nav-link{
@@ -195,7 +193,12 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
     .hero-section .lead-text{
       color:#455A64;
       font-size:1.12rem;
-      max-width:560px;
+      max-width:620px;
+    }
+    .hero-wordmark{
+      width:100%;
+      max-width:420px;
+      height:auto;
     }
     .btn-forest-primary{
       background-color:var(--forest-deep);
@@ -217,19 +220,6 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
       transition:.2s ease-in-out;
     }
     .btn-forest-outline:hover{background-color:var(--forest-deep);color:#fff;}
-
-    /* Signature hero illustration: layered forest silhouette (pure SVG/CSS) */
-    .forest-illustration{width:100%; max-width:520px; margin:0 auto;}
-    .badge-canopy{
-      position:absolute;
-      background:#fff;
-      border-radius:14px;
-      box-shadow:0 10px 30px rgba(38,50,56,.14);
-      padding:.85rem 1.1rem;
-      font-size:.85rem;
-      font-weight:600;
-      display:flex;align-items:center;gap:.6rem;
-    }
 
     /* ===== SECTION GENERIC ===== */
     .section-pad{padding:5rem 0;}
@@ -480,8 +470,7 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
     <nav class="navbar navbar-expand-lg navbar-certreefy sticky-top" aria-label="Primary navigation">
       <div class="container">
         <a class="navbar-brand" href="#home">
-          <span class="logo-badge"><i class="bi bi-tree-fill"></i></span>
-          CERTREEFY
+          <img src="../assets/img/certreefy-logo.png" alt="CERTREEFY" class="logo-badge">
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
                 aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -526,60 +515,21 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
     <!-- =========================================================
          2. HERO SECTION
     ========================================================== -->
-    <section id="home" class="hero-section">
+    <section id="home" class="hero-section text-center">
       <div class="container">
-        <div class="row align-items-center gy-5">
-          <div class="col-lg-6" data-aos="fade-up">
-            <span class="eyebrow"><i class="bi bi-patch-check-fill me-1"></i>Official CENRO Sta. Cruz Platform &middot; Districts 3 &amp; 4, Laguna</span>
-            <h1 class="mt-3 mb-3">Growing a Greener Laguna, One Digital Permit at a Time.</h1>
-            <p class="lead-text mb-4">
-              CERTREEFY lets residents, businesses, and communities across Districts 3 &amp; 4 of Laguna apply
-              for tree cutting permits, report illegal logging, request seedlings, and track environmental
-              applications online — fast, transparent, and fully accountable to DENR standards.
-            </p>
-            <div class="d-flex flex-wrap gap-3">
-              <a href="<?php echo e($primaryCtaHref); ?>" class="btn btn-forest-primary"><i class="bi bi-file-earmark-text me-2"></i><?php echo $isAuthenticated ? 'Go to Dashboard' : 'Request Permit'; ?></a>
-              <a href="<?php echo e($primaryCtaHref); ?>" class="btn btn-forest-outline"><i class="bi bi-shield-exclamation me-2"></i>Report Illegal Logging</a>
-            </div>
-          </div>
-          <div class="col-lg-6 position-relative" data-aos="fade-left" data-aos-delay="100">
-            <!-- Signature illustration: layered forest silhouette built in SVG -->
-            <svg class="forest-illustration" viewBox="0 0 520 420" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Illustration of layered forest hills with pine trees">
-              <rect x="0" y="0" width="520" height="420" fill="none"/>
-              <!-- back hill -->
-              <path d="M0 300 Q130 230 260 290 T520 270 V420 H0 Z" fill="#A5D6A7" opacity="0.65"/>
-              <!-- mid hill -->
-              <path d="M0 340 Q140 280 260 330 T520 310 V420 H0 Z" fill="#4CAF50" opacity="0.75"/>
-              <!-- front hill -->
-              <path d="M0 380 Q150 330 260 370 T520 355 V420 H0 Z" fill="#2E7D32"/>
-              <!-- pine cluster -->
-              <g fill="#1B5E20">
-                <polygon points="90,150 110,200 70,200"/>
-                <polygon points="90,175 115,225 65,225"/>
-                <rect x="86" y="222" width="8" height="18"/>
-                <polygon points="180,110 205,170 155,170"/>
-                <polygon points="180,140 210,200 150,200"/>
-                <rect x="176" y="197" width="8" height="20"/>
-                <polygon points="330,130 355,185 305,185"/>
-                <polygon points="330,160 360,215 300,215"/>
-                <rect x="326" y="212" width="8" height="20"/>
-              </g>
-              <g fill="#4CAF50">
-                <polygon points="240,170 260,210 220,210"/>
-                <polygon points="240,192 264,230 216,230"/>
-                <rect x="236" y="227" width="8" height="16"/>
-                <polygon points="420,150 442,195 398,195"/>
-                <polygon points="420,175 446,215 394,215"/>
-                <rect x="416" y="212" width="8" height="18"/>
-              </g>
-              <circle cx="440" cy="70" r="34" fill="#F5F5F5"/>
-            </svg>
-            <div class="badge-canopy" style="top:10%; left:0;">
-              <i class="bi bi-clock-history text-success"></i> Avg. 5-day review
-            </div>
-            <div class="badge-canopy" style="bottom:6%; right:2%;">
-              <i class="bi bi-shield-check text-success"></i> DENR-Compliant
-            </div>
+        <div class="mx-auto" style="max-width:760px;" data-aos="fade-up">
+          <img src="../assets/img/certreefy-wordmark.png" alt="CERTREEFY" class="hero-wordmark mb-2">
+          <h1 class="mb-3">Growing a Greener Laguna</h1>
+          <span class="eyebrow d-inline-block mb-3"><i class="bi bi-patch-check-fill me-1"></i>Official CENRO Sta. Cruz Platform &middot; Districts 3 &amp; 4, Laguna</span>
+          <p class="lead-text mx-auto mb-4">
+            CERTREEFY lets residents, businesses, and communities across Districts 3 &amp; 4 of Laguna apply
+            for tree cutting permits, request seedlings, report illegal logging, and track environmental
+            applications online. Fast, transparent, and fully accountable to DENR standards.
+          </p>
+          <div class="d-flex flex-wrap justify-content-center gap-3">
+            <a href="<?php echo e($primaryCtaHref); ?>" class="btn btn-forest-primary"><i class="bi bi-file-earmark-text me-2"></i>Tree Cutting Permit</a>
+            <a href="<?php echo e($primaryCtaHref); ?>" class="btn btn-forest-outline"><i class="bi bi-flower1 me-2"></i>Request Seedlings</a>
+            <a href="<?php echo e($primaryCtaHref); ?>" class="btn btn-forest-outline"><i class="bi bi-exclamation-triangle me-2"></i>Report Illegal Logging</a>
           </div>
         </div>
       </div>
@@ -1038,7 +988,7 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
       <div class="row g-4">
         <div class="col-lg-4">
           <a class="navbar-brand text-white d-flex align-items-center gap-2 mb-3" href="#home">
-            <span class="logo-badge"><i class="bi bi-tree-fill"></i></span>
+            <img src="../assets/img/certreefy-logo.png" alt="CERTREEFY" class="logo-badge">
             CERTREEFY
           </a>
           <p class="small">

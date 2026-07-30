@@ -71,7 +71,7 @@ try {
                     <div>
                         <div class="eyebrow">CENRO Operations</div>
                         <h1 class="page-title">Public Advisories</h1>
-                        <p class="text-secondary meta-copy mb-0">Announcements, notices, and environmental information posts for Community users.</p>
+                        <p class="text-secondary meta-copy mb-0">Announcements, notices, and environmental information posts for Client users.</p>
                     </div>
                     <div class="d-flex align-items-center gap-2">
                         <?php render_certreefy_notification_bell('header'); ?><span class="officer-chip"><span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span><?php echo e($displayName); ?></span>
@@ -93,7 +93,7 @@ try {
                 </div>
             <?php endif; ?>
 
-            <div class="alert alert-light border mb-4"><i class="bi bi-info-circle me-1"></i><strong>Published</strong> posts show to Community users; marking <strong>Show on public homepage</strong> also adds them to the landing-page carousel. Image optional. Drafts and archived posts stay private.</div>
+            <div class="alert alert-light border mb-4"><i class="bi bi-info-circle me-1"></i><strong>Published</strong> posts show to Client users; marking <strong>Show on public homepage</strong> also adds them to the landing-page carousel. Image optional. Drafts and archived posts stay private.</div>
 
             <section class="row g-3 mb-4" aria-label="Advisory summary">
                 <div class="col-sm-6 col-xl-4">
@@ -107,7 +107,7 @@ try {
                     <div class="ledger-card accent-teal stagger-2">
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-megaphone"></i></span><span class="ledger-tag">Published</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['published']; ?></div>
-                        <div class="ledger-caption">Visible to Community</div>
+                        <div class="ledger-caption">Visible to Client</div>
                     </div>
                 </div>
                 <div class="col-sm-6 col-xl-4">

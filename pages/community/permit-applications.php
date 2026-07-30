@@ -14,7 +14,7 @@ require_role($pdo, 'community');
 
 $currentRole = (string) $_SESSION['role'];
 $userId = (int) $_SESSION['id'];
-$displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Community User';
+$displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Client User';
 $todayLabel = date('l, F j, Y');
 $success = null;
 
@@ -68,7 +68,7 @@ function community_permit_status_badge(string $status): string
                 <div class="seal-watermark" aria-hidden="true"></div>
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
                     <div>
-                        <div class="eyebrow">Community Services &middot; <?php echo e($todayLabel); ?></div>
+                        <div class="eyebrow">Client Services &middot; <?php echo e($todayLabel); ?></div>
                         <h1 class="page-title">Tree Cutting Permit</h1>
                         <p class="meta-copy mb-0">Prepare an application and track its current processing status.</p>
                     </div>

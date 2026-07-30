@@ -1,5 +1,5 @@
 <?php
-/** RPS-only online scanned-document review endpoint. */
+/** RPS-only one-click online scanned-document review endpoint. */
 
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
@@ -13,18 +13,16 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit('Method not allowed.');
 }
 
-$documentValue = trim((string) ($_POST['document_id'] ?? ''));
-if (!ctype_digit($documentValue) || (int) $documentValue < 1) {
+$applicationValue = trim((string) ($_POST['application_id'] ?? ''));
+if (!ctype_digit($applicationValue) || (int) $applicationValue < 1) {
     http_response_code(404);
-    exit('The permit document was not found.');
+    exit('The permit application was not found.');
 }
-$documentId = (int) $documentValue;
-$document = permit_document_for_actor($pdo, $documentId, (int) $_SESSION['id']);
-if ($document === null) {
+$applicationId = (int) $applicationValue;
+if (permit_document_application_for_actor($pdo, $applicationId, (int) $_SESSION['id'], 'view') === null) {
     http_response_code(404);
-    exit('The permit document was not found.');
+    exit('The permit application was not found.');
 }
-$applicationId = (int) $document['application_id'];
 
 $submittedToken = (string) ($_POST['csrf_token'] ?? '');
 $sessionToken = (string) ($_SESSION['csrf_permit_document_review_token'] ?? '');
@@ -38,17 +36,19 @@ if ($sessionToken === '' || $submittedToken === '' || !hash_equals($sessionToken
 }
 
 try {
-    review_permit_document(
+    $result = review_permit_documents_batch(
         $pdo,
-        $documentId,
+        $applicationId,
         (int) $_SESSION['id'],
-        (string) ($_POST['review_status'] ?? ''),
+        is_array($_POST['replace'] ?? null) ? $_POST['replace'] : [],
         (string) ($_POST['review_notes'] ?? '')
     );
     $_SESSION['csrf_permit_document_review_token'] = bin2hex(random_bytes(32));
     $_SESSION['permit_document_review_flash'] = [
-        'type' => 'success',
-        'message' => 'Online document review saved successfully.',
+        'type' => $result['approved'] ? 'success' : 'warning',
+        'message' => $result['approved']
+            ? 'All ' . (int) $result['reviewed_count'] . ' submitted scan(s) approved. The applicant was asked to bring the original documents.'
+            : 'Replacement requested for ' . (int) $result['replacement_count'] . ' document(s). The applicant was notified.',
     ];
 } catch (PermitDocumentValidationException | RuntimeException $e) {
     $_SESSION['permit_document_review_flash'] = [

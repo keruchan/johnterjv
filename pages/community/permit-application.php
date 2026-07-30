@@ -84,8 +84,24 @@ $submissionKey = $applicationRecord !== null
     ? (string) $applicationRecord['submission_key']
     : new_permit_submission_key();
 
+// A submitted application keeps the classification it was filed under; a draft
+// or new application always follows the account's current classification.
+$accountCategory = ($applicant['applicant_category'] ?? '') !== ''
+    ? (string) $applicant['applicant_category']
+    : null;
+$permitCategory = $accountCategory;
+if ($applicationRecord !== null
+    && (string) $applicationRecord['application_status'] !== 'draft'
+    && ($applicationRecord['permit_category'] ?? '') !== '') {
+    $permitCategory = (string) $applicationRecord['permit_category'];
+}
+$permitCategoryDefinition = permit_matrix_category($permitCategory);
+
 if ($applicationRecord !== null) {
-    $formData = permit_normalize_application_data($applicationRecord);
+    $formData = permit_normalize_application_data($applicationRecord, $permitCategory);
+    $formData['condition_answers'] = permit_matrix_decode_condition_answers(
+        $applicationRecord['condition_answers'] ?? null
+    );
     $formData['declaration_confirmed'] = $applicationRecord['declaration_confirmed_at'] !== null;
     $treeData = permit_tree_records_for_actor($pdo, $applicationId, $userId) ?? [];
     $permitDocuments = permit_documents_for_actor($pdo, $applicationId, $userId, true) ?? [];
@@ -113,7 +129,7 @@ if ($applicationRecord !== null) {
         'property_relationship' => 'owner',
         'property_owner_name' => permit_applicant_name($applicant),
         'province' => 'Laguna',
-    ]);
+    ], $permitCategory);
     $treeData = [];
     $permitDocuments = [];
     $originalReviews = [];
@@ -127,7 +143,7 @@ if ($applicationRecord !== null) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $formData = permit_normalize_application_data($_POST);
+    $formData = permit_normalize_application_data($_POST, $permitCategory);
     $treeData = permit_normalize_tree_records(is_array($_POST['trees'] ?? null) ? $_POST['trees'] : []);
     $submissionKey = trim((string) ($_POST['submission_key'] ?? ''));
     $action = trim((string) ($_POST['action'] ?? ''));
@@ -204,7 +220,17 @@ $snapshotName = $applicationRecord !== null ? (string) $applicationRecord['appli
 $snapshotContact = $applicationRecord !== null ? (string) ($applicationRecord['applicant_contact'] ?? '') : (string) ($applicant['contact'] ?? '');
 $snapshotAddress = $applicationRecord !== null ? (string) ($applicationRecord['applicant_address'] ?? '') : (string) ($applicant['address'] ?? '');
 $disabled = $isEditable ? '' : ' disabled';
-$documentCatalog = permit_document_type_catalog();
+// Draft edits recompute the checklist live from the form so newly-ticked
+// declarations reveal their upload slots immediately.
+$documentCatalog = $permitCategory === null ? [] : array_map(
+    'permit_document_definition_from_requirement',
+    permit_matrix_resolved_requirements(
+        $permitCategory,
+        $formData['condition_answers'] ?? [],
+        $formData['area_hectares'] ?? null,
+        (bool) ($formData['filed_by_representative'] ?? false)
+    )
+);
 $currentDocuments = permit_current_documents_by_type($permitDocuments);
 $latestOriginalReviews = permit_latest_original_reviews_by_type($originalReviews);
 $originalDocumentProgress = permit_original_required_progress(
@@ -340,7 +366,7 @@ foreach ($permitInspections as $inspection) {
                         <section class="docket-panel mb-3" aria-labelledby="applicant-heading">
                             <div class="section-heading">
                                 <h2 id="applicant-heading">Applicant and Contact Information</h2>
-                                <span class="section-note">From your active Community profile</span>
+                                <span class="section-note">From your active Client profile</span>
                             </div>
                             <div class="row g-3">
                                 <div class="col-md-6">
@@ -377,6 +403,40 @@ foreach ($permitInspections as $inspection) {
                                     </div>
                                 <?php endif; ?>
                             </div>
+                        </section>
+
+                        <section class="docket-panel mb-3" aria-labelledby="classification-heading">
+                            <div class="section-heading">
+                                <h2 id="classification-heading">Permit Classification</h2>
+                                <span class="section-note">Set by your account registration</span>
+                            </div>
+                            <?php if ($permitCategoryDefinition === null): ?>
+                                <div class="alert alert-warning mb-0">
+                                    Your account has no applicant classification yet, so the applicable permit,
+                                    requirements, and fees cannot be determined.
+                                    Set it in <a href="profile.php" class="alert-link">Profile Management</a> before submitting.
+                                </div>
+                            <?php else: ?>
+                                <div class="row g-3">
+                                    <div class="col-md-6">
+                                        <label class="form-label">Classification</label>
+                                        <input type="text" class="form-control" value="<?php echo e($permitCategoryDefinition['label']); ?>" disabled>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label"><?php echo e($permitCategoryDefinition['subtype_label']); ?></label>
+                                        <input type="text" class="form-control" value="<?php echo e((string) ($applicant['applicant_subtype'] ?? '-')); ?>" disabled>
+                                    </div>
+                                    <div class="col-12">
+                                        <label class="form-label">Permit applied for</label>
+                                        <input type="text" class="form-control" value="<?php echo e($permitCategoryDefinition['permit_code'] . ' - ' . $permitCategoryDefinition['permit_title']); ?>" disabled>
+                                        <small class="text-secondary">
+                                            Form <?php echo e($permitCategoryDefinition['form_code']); ?>
+                                            &middot; <?php echo e($permitCategoryDefinition['classification']); ?>
+                                            &middot; <?php echo e(implode(', ', $permitCategoryDefinition['transaction_types'])); ?>
+                                        </small>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
                         </section>
 
                         <section class="docket-panel mb-3" aria-labelledby="property-heading">
@@ -459,8 +519,52 @@ foreach ($permitInspections as $inspection) {
                                 <span class="section-note">Add one related record per tree type or measurement set</span>
                             </div>
                             <div class="row g-3 mb-4">
+                                <?php if ($permitCategoryDefinition !== null): ?>
+                                    <div class="col-md-6">
+                                        <label for="purpose_option" class="form-label">Purpose <span class="text-danger">*</span></label>
+                                        <select class="form-select" id="purpose_option" name="purpose_option" required<?php echo $disabled; ?>>
+                                            <option value="">Select purpose</option>
+                                            <?php foreach ($permitCategoryDefinition['purposes'] as $purpose): ?>
+                                                <option value="<?php echo e($purpose); ?>"<?php echo ($formData['purpose_option'] ?? null) === $purpose ? ' selected' : ''; ?>><?php echo e($purpose); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <small class="text-secondary"><?php echo e($permitCategoryDefinition['purpose_group']); ?></small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="tree_origin" class="form-label">Tree origin <span class="text-danger">*</span></label>
+                                        <select class="form-select" id="tree_origin" name="tree_origin" required<?php echo $disabled; ?>>
+                                            <option value="">Select tree origin</option>
+                                            <?php foreach (permit_matrix_tree_origins() as $originKey => $originLabel): ?>
+                                                <?php if (permit_matrix_replacement_rule($permitCategory, $originKey) === null) { continue; } ?>
+                                                <option value="<?php echo e($originKey); ?>"<?php echo ($formData['tree_origin'] ?? null) === $originKey ? ' selected' : ''; ?>><?php echo e($originLabel); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <small class="text-secondary" id="replacement-note">
+                                            <?php
+                                            $currentRule = ($formData['tree_origin'] ?? null) !== null
+                                                ? permit_matrix_replacement_rule($permitCategory, (string) $formData['tree_origin'])
+                                                : null;
+                                            echo $currentRule !== null
+                                                ? 'Replacement obligation: ' . e($currentRule)
+                                                : 'Determines your seedling replacement obligation.';
+                                            ?>
+                                        </small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="area_hectares" class="form-label">
+                                            Area applied for (hectares)
+                                            <?php if ($permitCategoryDefinition['inventory_fee_applies']): ?><span class="text-danger">*</span><?php endif; ?>
+                                        </label>
+                                        <input type="number" step="0.0001" min="0" class="form-control" id="area_hectares" name="area_hectares" value="<?php echo e((string) ($formData['area_hectares'] ?? '')); ?>"<?php echo $permitCategoryDefinition['inventory_fee_applies'] ? ' required' : ''; ?><?php echo $disabled; ?>>
+                                        <small class="text-secondary">
+                                            <?php echo $permitCategoryDefinition['inventory_fee_applies']
+                                                ? 'Inventory fee is assessed at ' . e(permit_matrix_format_peso(PERMIT_FEE_INVENTORY_PER_HECTARE)) . ' per hectare.'
+                                                : 'No inventory fee applies to this permit type.'; ?>
+                                        </small>
+                                    </div>
+                                <?php endif; ?>
                                 <div class="col-12">
-                                    <label for="cutting_purpose" class="form-label">Purpose of cutting <span class="text-danger">*</span></label>
+                                    <label for="cutting_purpose" class="form-label">Purpose details <span class="text-danger">*</span></label>
                                     <textarea class="form-control" id="cutting_purpose" name="cutting_purpose" rows="3" maxlength="500" required<?php echo $disabled; ?>><?php echo e((string) ($formData['cutting_purpose'] ?? '')); ?></textarea>
                                 </div>
                                 <div class="col-12">
@@ -468,6 +572,42 @@ foreach ($permitInspections as $inspection) {
                                     <textarea class="form-control" id="application_notes" name="application_notes" rows="3" maxlength="5000"<?php echo $disabled; ?>><?php echo e((string) ($formData['application_notes'] ?? '')); ?></textarea>
                                 </div>
                             </div>
+
+                            <?php
+                            $conditionQuestions = $permitCategory !== null
+                                ? permit_matrix_condition_questions_for($permitCategory)
+                                : [];
+                            $conditionAnswers = $formData['condition_answers'] ?? [];
+                            ?>
+                            <?php if ($conditionQuestions !== []): ?>
+                                <div class="mb-4">
+                                    <h3 class="h5 mb-1">Situational declarations</h3>
+                                    <p class="small text-secondary">Answering yes adds the matching requirement to your upload checklist.</p>
+                                    <?php foreach ($conditionQuestions as $conditionKey => $conditionLabel): ?>
+                                        <div class="form-check">
+                                            <input type="hidden" name="<?php echo e($conditionKey); ?>" value="0">
+                                            <input class="form-check-input" type="checkbox" value="1" id="cond_<?php echo e($conditionKey); ?>" name="<?php echo e($conditionKey); ?>"<?php echo !empty($conditionAnswers[$conditionKey]) ? ' checked' : ''; ?><?php echo $disabled; ?>>
+                                            <label class="form-check-label" for="cond_<?php echo e($conditionKey); ?>"><?php echo e($conditionLabel); ?></label>
+                                        </div>
+                                    <?php endforeach; ?>
+                                </div>
+                            <?php endif; ?>
+
+                            <?php if ($permitCategoryDefinition !== null): ?>
+                                <?php $assessedFees = permit_matrix_assess_fees($permitCategory, $formData['area_hectares'] ?? null); ?>
+                                <div class="alert alert-light border mb-4">
+                                    <div class="fw-semibold mb-2"><i class="bi bi-receipt me-1"></i>Assessed fees</div>
+                                    <div class="d-flex justify-content-between"><span>Certification fee</span><span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['certification_fee'])); ?></span></div>
+                                    <div class="d-flex justify-content-between"><span>Oath fee</span><span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['oath_fee'])); ?></span></div>
+                                    <div class="d-flex justify-content-between">
+                                        <span>Inventory fee<?php echo $assessedFees['inventory_applies'] ? '' : ' (not applicable)'; ?></span>
+                                        <span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['inventory_fee'])); ?></span>
+                                    </div>
+                                    <hr class="my-2">
+                                    <div class="d-flex justify-content-between fw-semibold"><span>Total</span><span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['total_fee'])); ?></span></div>
+                                    <small class="text-secondary">Payable at the CENRO office when you submit your original documents.</small>
+                                </div>
+                            <?php endif; ?>
 
                             <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-3">
                                 <h3 class="h5 mb-0">Tree records</h3>
@@ -717,7 +857,14 @@ foreach ($permitInspections as $inspection) {
                     <div class="row g-3 mb-4">
                         <div class="col-lg-6"><div class="border rounded p-3 h-100"><div class="d-flex justify-content-between small mb-1"><span>Required digital scans accepted</span><span class="fw-semibold"><?php echo $acceptedRequiredCount; ?> of <?php echo $requiredDocumentCount; ?></span></div><div class="progress" role="progressbar" aria-label="Required online scans" aria-valuenow="<?php echo $documentProgress; ?>" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: <?php echo $documentProgress; ?>%"><?php echo $documentProgress; ?>%</div></div></div></div>
                         <div class="col-lg-6"><div class="border rounded p-3 h-100"><div class="d-flex justify-content-between small mb-1"><span>Required originals verified</span><span class="fw-semibold"><?php echo (int) $originalDocumentProgress['verified']; ?> of <?php echo (int) $originalDocumentProgress['required']; ?></span></div><div class="progress" role="progressbar" aria-label="Required original documents" aria-valuenow="<?php echo (int) $originalDocumentProgress['percent']; ?>" aria-valuemin="0" aria-valuemax="100"><div class="progress-bar" style="width: <?php echo (int) $originalDocumentProgress['percent']; ?>%"><?php echo (int) $originalDocumentProgress['percent']; ?>%</div></div></div></div>
-                        <div class="col-12"><div class="form-text">Provisional until CENRO/RPS confirms official document requirements.</div></div>
+                        <div class="col-12"><div class="form-text">
+                            <?php if ($permitCategoryDefinition !== null): ?>
+                                Checklist for <?php echo e($permitCategoryDefinition['permit_code']); ?> (form <?php echo e($permitCategoryDefinition['form_code']); ?>).
+                                Ticking a situational declaration above adds its requirement here.
+                            <?php else: ?>
+                                Set your applicant classification to see the requirement checklist.
+                            <?php endif; ?>
+                        </div></div>
                     </div>
 
                     <?php if ($documentUploadLockReason !== null): ?>
@@ -745,11 +892,13 @@ foreach ($permitInspections as $inspection) {
                                     <div class="card-body">
                                         <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
                                             <h3 class="h6 mb-0"><?php echo e((string) $definition['label']); ?></h3>
-                                            <?php if (!empty($definition['required'])): ?>
-                                                <span class="badge text-bg-light border">Required</span>
-                                            <?php else: ?>
-                                                <span class="badge text-bg-light border">Optional</span>
-                                            <?php endif; ?>
+                                            <span class="badge text-bg-light border text-nowrap">
+                                                <?php echo e(match ((string) ($definition['group'] ?? 'mandatory')) {
+                                                    'conditional' => 'Conditional',
+                                                    'representative' => 'Representative',
+                                                    default => 'Mandatory',
+                                                }); ?>
+                                            </span>
                                         </div>
                                         <p class="small text-secondary"><?php echo e((string) $definition['description']); ?></p>
 
@@ -810,7 +959,7 @@ foreach ($permitInspections as $inspection) {
                                                 </button>
                                             </form>
                                         <?php elseif ($currentDocument !== null && (string) $currentDocument['verification_status'] === 'accepted'): ?>
-                                            <div class="small text-success"><i class="bi bi-check-circle"></i> Accepted online scans are locked against Community replacement.</div>
+                                            <div class="small text-success"><i class="bi bi-check-circle"></i> Accepted online scans are locked against Client replacement.</div>
                                         <?php endif; ?>
                                     </div>
                                 </article>

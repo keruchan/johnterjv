@@ -25,7 +25,7 @@ require_role($pdo, 'community');
 
 $currentRole = (string) $_SESSION['role'];
 $userId = (int) $_SESSION['id'];
-$displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Community User';
+$displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Client User';
 $todayLabel = date('l, F j, Y');
 
 try {
@@ -96,7 +96,7 @@ $communityAppStatusBadge = static function (string $status): string {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CERTREEFY | Community Dashboard</title>
+    <title>CERTREEFY | Client Dashboard</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -116,8 +116,8 @@ $communityAppStatusBadge = static function (string $status): string {
                 <div class="seal-watermark" aria-hidden="true"></div>
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
                     <div>
-                        <div class="eyebrow">Community Services &middot; <?php echo e($todayLabel); ?></div>
-                        <h1 class="page-title">Community Services Dashboard</h1>
+                        <div class="eyebrow">Client Services &middot; <?php echo e($todayLabel); ?></div>
+                        <h1 class="page-title">Client Services Dashboard</h1>
                         <p class="meta-copy mb-0">Welcome back, <?php echo e($displayName); ?>. Applications, reports, and seedling requests in one place.</p>
                     </div>
                     <div class="d-flex flex-wrap align-items-center gap-2">
@@ -139,7 +139,7 @@ $communityAppStatusBadge = static function (string $status): string {
                 </svg>
             </section>
 
-            <section class="row g-3 mb-5" aria-label="Community dashboard metrics">
+            <section class="row g-3 mb-5" aria-label="Client dashboard metrics">
                 <div class="col-sm-6 col-xl-3">
                     <a class="ledger-card stagger-1 d-block text-reset text-decoration-none" href="permit-applications.php#applications">
                         <div class="d-flex justify-content-between align-items-start">
@@ -182,9 +182,9 @@ $communityAppStatusBadge = static function (string $status): string {
                 </div>
             </section>
 
-            <section class="mb-5" aria-label="Community service modules">
+            <section class="mb-5" aria-label="Client service modules">
                 <div class="section-heading">
-                    <h2>Community Services</h2>
+                    <h2>Client Services</h2>
                     <span class="section-note">4 service areas</span>
                 </div>
                 <div class="row g-3">
@@ -269,7 +269,7 @@ $communityAppStatusBadge = static function (string $status): string {
                         </div>
                         <div class="snapshot-row">
                             <span class="text-secondary"><span class="status-dot"></span>Account type</span>
-                            <span class="status-ready">Community</span>
+                            <span class="status-ready">Client</span>
                         </div>
                         <div class="snapshot-row">
                             <span class="text-secondary"><span class="status-dot"></span>Permit services</span>

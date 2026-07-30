@@ -1313,7 +1313,7 @@ function seedling_cancel_request(PDO $pdo, int $requestId, int $actorUserId, str
             'seedling_request_cancelled',
             'seedling_request',
             $requestId,
-            'Community user withdrew a seedling request.',
+            'Client user withdrew a seedling request.',
             ['request_reference' => (string) $request['request_reference']]
         );
 

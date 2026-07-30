@@ -41,17 +41,18 @@ if ($sessionToken === '' || $submittedToken === '' || !hash_equals($sessionToken
 }
 
 try {
-    record_original_document_verification(
+    $result = verify_permit_originals_and_fees(
         $pdo,
         $applicationId,
         $userId,
-        (string) ($_POST['document_type'] ?? ''),
-        $_POST
+        (string) ($_POST['review_notes'] ?? '')
     );
     $_SESSION['csrf_permit_original_review_token'] = bin2hex(random_bytes(32));
     $_SESSION['permit_original_review_flash'] = [
         'type' => 'success',
-        'message' => 'Original hardcopy and wet-ink verification recorded successfully.',
+        'message' => 'Original documents verified for ' . (int) $result['verified_document_count']
+            . ' requirement(s) and fees of ' . permit_matrix_format_peso((float) $result['total_fee'])
+            . ' recorded as received.',
     ];
 } catch (PermitDocumentValidationException | RuntimeException $e) {
     $_SESSION['permit_original_review_flash'] = [

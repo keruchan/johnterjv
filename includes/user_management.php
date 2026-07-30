@@ -11,7 +11,7 @@ function user_management_role_labels(): array
     return [
         'superadmin' => 'CENRO Superadmin',
         'rps'        => 'RPS User',
-        'community'  => 'Community User',
+        'community'  => 'Client User',
         'ems'        => 'EMS User',
     ];
 }
@@ -19,7 +19,7 @@ function user_management_role_labels(): array
 function user_management_editable_roles(): array
 {
     return [
-        'community' => 'Community User',
+        'community' => 'Client User',
         'rps'       => 'RPS User',
         'ems'       => 'EMS User',
     ];

@@ -62,7 +62,7 @@ if ($rawToken !== '') {
                 'email_verified',
                 'user',
                 (int) $user['id'],
-                'Community account email verified via link.'
+                'Client account email verified via link.'
             );
 
             $state = 'success';
@@ -79,7 +79,7 @@ $statePresentation = [
         'icon' => 'bi-check-circle-fill',
         'tone' => 'success',
         'title' => 'Email verified!',
-        'body' => 'Your Community account is now active. You can sign in right away.',
+        'body' => 'Your Client account is now active. You can sign in right away.',
     ],
     'expired' => [
         'icon' => 'bi-clock-history',

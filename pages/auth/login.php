@@ -194,24 +194,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="col-12 col-lg-10 col-xl-9">
                     <div class="card auth-card">
                         <div class="row g-0">
-                            <div class="col-lg-5 auth-side p-4 p-md-5 d-flex flex-column justify-content-between">
-                                <div class="seal-watermark" aria-hidden="true"></div>
+                            <div class="col-lg-5 auth-side p-4 p-md-5 d-flex flex-column justify-content-center text-center">
                                 <div class="auth-side-body">
-                                    <a href="../index.php" class="d-flex align-items-center gap-3 mb-4 text-white text-decoration-none">
-                                        <span class="brand-seal" aria-hidden="true"><i class="bi bi-tree-fill"></i></span>
-                                        <span>
-                                            <span class="brand-word d-block">CERTREEFY</span>
-                                            <span class="brand-sub d-block">Districts 3 &amp; 4, Laguna</span>
-                                        </span>
+                                    <a href="../index.php" class="d-inline-block mb-4">
+                                        <img src="../../assets/img/certreefy-wordmark-light.png" alt="CERTREEFY" class="brand-wordmark">
                                     </a>
 
-                                    <h2 class="auth-headline mb-3">Tree Cutting Permit &amp; Environmental Management</h2>
-                                    <p class="mb-0 opacity-75">Sign in to reach your dashboard and manage CENRO Sta. Cruz environmental services.</p>
-                                </div>
-
-                                <div class="auth-side-foot mt-4 pt-4">
-                                    <p class="small mb-1 opacity-75">Authorized roles</p>
-                                    <p class="fw-semibold mb-0">CENRO Superadmin, RPS, Community, EMS</p>
+                                    <h2 class="auth-headline mb-3">Tree Cutting Permits, Environmental Management, &amp; Seedling Request Services</h2>
+                                    <p class="mb-0 opacity-75">DENR-CENRO Sta. Cruz</p>
                                 </div>
                             </div>
 

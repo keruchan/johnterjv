@@ -283,9 +283,9 @@ function certreefy_navigation_shell_for_role(string $role): ?array
 {
     if ($role === 'community') {
         return [
-            'aria_label' => 'Community dashboard navigation',
-            'mobile_aria_label' => 'Community mobile navigation',
-            'brand_subtitle' => 'Community Portal',
+            'aria_label' => 'Client dashboard navigation',
+            'mobile_aria_label' => 'Client mobile navigation',
+            'brand_subtitle' => 'Client Portal',
             'brand_mark' => 'tree',
         ];
     }
@@ -340,7 +340,7 @@ function certreefy_role_display_label(string $role): string
         'superadmin' => 'Superadmin',
         'rps' => 'RPS Officer',
         'ems' => 'EMS Unit',
-        'community' => 'Community',
+        'community' => 'Client',
         default => ucfirst($role),
     };
 }
@@ -384,11 +384,8 @@ function render_certreefy_navigation(string $role, string $activePage, array $pe
     <aside class="sidebar" aria-label="<?php echo htmlspecialchars($shell['aria_label'], ENT_QUOTES, 'UTF-8'); ?>">
         <div class="sidebar-head">
             <a class="brand-block" href="../index.php" title="Go to the CERTREEFY home page">
-                <?php render_certreefy_brand_mark($shell['brand_mark']); ?>
-                <div>
-                    <div class="brand-word">CERTREEFY</div>
-                    <div class="brand-sub"><?php echo htmlspecialchars($shell['brand_subtitle'], ENT_QUOTES, 'UTF-8'); ?></div>
-                </div>
+                <img src="../../assets/img/certreefy-wordmark-light.png" alt="CERTREEFY" class="brand-wordmark">
+                <div class="brand-sub"><?php echo htmlspecialchars($shell['brand_subtitle'], ENT_QUOTES, 'UTF-8'); ?></div>
             </a>
         </div>
 

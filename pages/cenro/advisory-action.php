@@ -44,7 +44,7 @@ try {
             throw new AdvisoryValidationException('The selected advisory is invalid.');
         }
         advisory_transition($pdo, $userId, $advisoryId, 'publish', $_POST);
-        $_SESSION['advisory_flash'] = ['type' => 'success', 'message' => 'Advisory published to Community users.'];
+        $_SESSION['advisory_flash'] = ['type' => 'success', 'message' => 'Advisory published to Client users.'];
     } elseif ($action === 'archive_advisory') {
         if ($advisoryId < 1) {
             throw new AdvisoryValidationException('The selected advisory is invalid.');

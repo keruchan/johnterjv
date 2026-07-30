@@ -230,7 +230,7 @@ $todayLabel = date('l, F j, Y');
                             <div class="registry-card tone-rust">
                                 <span class="registry-icon"><i class="bi bi-people"></i></span>
                                 <h3>User Management</h3>
-                                <p>Community accounts, role assignment, and account status control.</p>
+                                <p>Client accounts, role assignment, and account status control.</p>
                                 <a class="link-open" href="user-management.php">Open module <i class="bi bi-arrow-right"></i></a>
                             </div>
                         </div>
@@ -270,7 +270,7 @@ $todayLabel = date('l, F j, Y');
                         </div>
                         <div class="docket-row">
                             <div>
-                                <div class="docket-title">Community account approvals</div>
+                                <div class="docket-title">Client account approvals</div>
                                 <div class="docket-sub">New registrations awaiting activation</div>
                             </div>
                             <span class="count-badge tabular">0 pending</span>
@@ -288,7 +288,7 @@ $todayLabel = date('l, F j, Y');
                             <span class="status-ready">Ready</span>
                         </div>
                         <div class="snapshot-row">
-                            <span class="text-secondary"><span class="status-dot"></span>Community reporting</span>
+                            <span class="text-secondary"><span class="status-dot"></span>Client reporting</span>
                             <span class="status-ready">Ready</span>
                         </div>
                         <div class="snapshot-row">

@@ -59,7 +59,7 @@ try {
                     <div>
                         <div class="eyebrow">CENRO Enforcement</div>
                         <h1 class="page-title">Illegal Logging Reports</h1>
-                        <p class="text-secondary meta-copy mb-0">Review, dispatch field verification, and resolve Community-reported incidents.</p>
+                        <p class="text-secondary meta-copy mb-0">Review, dispatch field verification, and resolve Client-reported incidents.</p>
                     </div>
                     <div class="d-flex align-items-center gap-2">
                         <?php render_certreefy_notification_bell('header'); ?><span class="officer-chip"><span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span><?php echo e($displayName); ?></span>

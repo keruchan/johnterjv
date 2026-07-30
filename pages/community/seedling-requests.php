@@ -12,7 +12,7 @@ require_role($pdo, 'community');
 
 $currentRole = (string) $_SESSION['role'];
 $userId = (int) $_SESSION['id'];
-$displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Community User';
+$displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Client User';
 
 if (empty($_SESSION['csrf_seedling_request_submit_token'])) {
     $_SESSION['csrf_seedling_request_submit_token'] = bin2hex(random_bytes(32));
@@ -64,7 +64,7 @@ $cap = seedling_max_per_request();
                 <div class="seal-watermark" aria-hidden="true"></div>
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
                     <div>
-                        <div class="eyebrow">Community</div>
+                        <div class="eyebrow">Client</div>
                         <h1 class="page-title">Seedling Request</h1>
                         <p class="text-secondary meta-copy mb-0">Request free seedlings for planting. Up to <?php echo $cap; ?> seedlings per request.</p>
                     </div>

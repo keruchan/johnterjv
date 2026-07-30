@@ -84,6 +84,10 @@ SQL;
         'email_verified_at' => "DATETIME DEFAULT NULL COMMENT 'Set when the user clicks the emailed verification link' AFTER `status`",
         'email_verify_token' => "VARCHAR(64) DEFAULT NULL COMMENT 'SHA-256 hash of the pending verification token' AFTER `email_verified_at`",
         'email_verify_expires' => "DATETIME DEFAULT NULL AFTER `email_verify_token`",
+        // Permit-matrix classification chosen at registration. Determines which
+        // permit type, requirement checklist, and fees a client's applications use.
+        'applicant_category' => "VARCHAR(30) DEFAULT NULL COMMENT 'Permit matrix category key' AFTER `address`",
+        'applicant_subtype' => "VARCHAR(150) DEFAULT NULL COMMENT 'Specific applicant option within the category' AFTER `applicant_category`",
     ];
     $userVerificationColumnLookup = $pdo->prepare(
         "SELECT COUNT(*)
@@ -663,6 +667,24 @@ SQL;
         'authorization_details' => "VARCHAR(1000) DEFAULT NULL AFTER `property_relationship`",
         'district' => "VARCHAR(100) DEFAULT NULL AFTER `lot_number`",
         'declaration_confirmed_at' => "TIMESTAMP NULL DEFAULT NULL AFTER `validity_status`",
+        // Permit-matrix classification carried onto the application so the
+        // requirement checklist and assessed fees stay reproducible even if the
+        // applicant's account classification is corrected later.
+        'permit_category' => "VARCHAR(30) DEFAULT NULL AFTER `applicant_type`",
+        'permit_code' => "VARCHAR(20) DEFAULT NULL AFTER `permit_category`",
+        'applicant_subtype' => "VARCHAR(150) DEFAULT NULL AFTER `permit_code`",
+        'purpose_option' => "VARCHAR(255) DEFAULT NULL AFTER `cutting_purpose`",
+        'area_hectares' => "DECIMAL(12,4) DEFAULT NULL AFTER `purpose_option`",
+        'tree_origin' => "VARCHAR(20) DEFAULT NULL AFTER `area_hectares`",
+        'filed_by_representative' => "TINYINT(1) NOT NULL DEFAULT 0 AFTER `tree_origin`",
+        'condition_answers' => "TEXT NULL AFTER `filed_by_representative`",
+        'certification_fee' => "DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER `condition_answers`",
+        'oath_fee' => "DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER `certification_fee`",
+        'inventory_fee' => "DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER `oath_fee`",
+        'total_fee' => "DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER `inventory_fee`",
+        'fees_status' => "VARCHAR(30) NOT NULL DEFAULT 'unpaid' AFTER `total_fee`",
+        'fees_confirmed_at' => "TIMESTAMP NULL DEFAULT NULL AFTER `fees_status`",
+        'fees_confirmed_by_user_id' => "INT UNSIGNED DEFAULT NULL AFTER `fees_confirmed_at`",
     ];
     $permitApplicationColumnLookup = $pdo->prepare(
         "SELECT COUNT(*)

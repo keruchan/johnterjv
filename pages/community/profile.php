@@ -28,7 +28,8 @@ if (!empty($_SESSION['profile_success'])) {
 
 try {
     $profileStmt = $pdo->prepare(
-        'SELECT id, fname, mname, lname, email, contact, address, username, role, status
+        'SELECT id, fname, mname, lname, email, contact, address, username, role, status,
+                applicant_category, applicant_subtype
          FROM tbl_users
          WHERE id = :id AND role = :role AND status = :status
          LIMIT 1'
@@ -52,9 +53,16 @@ if (!$profile) {
 }
 
 $formData = user_profile_data_from_input($profile);
+// Classification is fixed once set. Accounts created outside registration can
+// still choose theirs here, because no permit can be filed without one.
+$classificationLocked = (string) ($profile['applicant_category'] ?? '') !== '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $formData = user_profile_data_from_input($_POST);
+    if ($classificationLocked) {
+        $formData['applicant_category'] = (string) $profile['applicant_category'];
+        $formData['applicant_subtype'] = (string) $profile['applicant_subtype'];
+    }
 
     $submittedToken = (string) ($_POST['csrf_token'] ?? '');
     $sessionToken = (string) ($_SESSION['csrf_profile_token'] ?? '');
@@ -64,6 +72,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $errors = array_merge($errors, validate_user_profile_data($formData));
+    if (!$classificationLocked) {
+        $errors = array_merge($errors, validate_applicant_classification($formData));
+    }
 
     if (empty($errors)) {
         try {
@@ -91,7 +102,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                          email = :email,
                          contact = :contact,
                          address = :address,
-                         username = :username
+                         username = :username,
+                         applicant_category = :applicant_category,
+                         applicant_subtype = :applicant_subtype
                      WHERE id = :id AND role = :role AND status = :status'
                 );
                 $updateStmt->execute([
@@ -102,6 +115,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':contact'  => $formData['contact'],
                     ':address'  => $formData['address'],
                     ':username' => $formData['username'],
+                    ':applicant_category' => $formData['applicant_category'],
+                    ':applicant_subtype'  => $formData['applicant_subtype'],
                     ':id'       => $userId,
                     ':role'     => 'community',
                     ':status'   => 'active',
@@ -135,7 +150,7 @@ $todayLabel = date('l, F j, Y');
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CERTREEFY | Community Profile</title>
+    <title>CERTREEFY | Client Profile</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -155,7 +170,7 @@ $todayLabel = date('l, F j, Y');
                 <div class="seal-watermark" aria-hidden="true"></div>
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
                     <div>
-                        <div class="eyebrow">Community Account &middot; <?php echo e($todayLabel); ?></div>
+                        <div class="eyebrow">Client Account &middot; <?php echo e($todayLabel); ?></div>
                         <h1 class="page-title">Profile Management</h1>
                         <p class="meta-copy mb-0">Keep your contact and account information current.</p>
                     </div>
@@ -233,6 +248,52 @@ $todayLabel = date('l, F j, Y');
                                     <label for="username" class="form-label">Username</label>
                                     <input type="text" class="form-control" id="username" name="username" value="<?php echo e($formData['username']); ?>" maxlength="50" autocomplete="username" required>
                                 </div>
+                                <div class="col-12">
+                                    <hr>
+                                    <h3 class="h6 mb-1">Applicant classification</h3>
+                                    <p class="small text-secondary">Determines which tree cutting permit, requirements, and fees apply to your applications.</p>
+                                </div>
+                                <?php if ($classificationLocked): ?>
+                                    <?php $lockedCategory = permit_matrix_category($formData['applicant_category']); ?>
+                                    <div class="col-md-6">
+                                        <label class="form-label">Classification</label>
+                                        <input type="text" class="form-control" value="<?php echo e($lockedCategory['label'] ?? $formData['applicant_category']); ?>" disabled>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label class="form-label"><?php echo e($lockedCategory['subtype_label'] ?? 'Specific applicant type'); ?></label>
+                                        <input type="text" class="form-control" value="<?php echo e($formData['applicant_subtype']); ?>" disabled>
+                                    </div>
+                                    <div class="col-12">
+                                        <small class="text-secondary">
+                                            Permit: <?php echo e(($lockedCategory['permit_code'] ?? '-') . ' - ' . ($lockedCategory['permit_title'] ?? '')); ?>.
+                                            Contact CENRO if this needs to change.
+                                        </small>
+                                    </div>
+                                <?php else: ?>
+                                    <div class="col-md-6">
+                                        <label for="applicant_category" class="form-label">Classification</label>
+                                        <select class="form-select" id="applicant_category" name="applicant_category" required>
+                                            <option value="">Select classification</option>
+                                            <?php foreach (permit_matrix_categories() as $categoryKey => $category): ?>
+                                                <option value="<?php echo e($categoryKey); ?>"<?php echo $formData['applicant_category'] === $categoryKey ? ' selected' : ''; ?>>
+                                                    <?php echo e($category['label'] . ' - ' . $category['permit_code']); ?>
+                                                </option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="applicant_subtype" class="form-label">Specific applicant type</label>
+                                        <select class="form-select" id="applicant_subtype" name="applicant_subtype" required>
+                                            <option value="">Select classification first</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-12">
+                                        <div class="alert alert-warning py-2 mb-0 small">
+                                            <i class="bi bi-exclamation-triangle me-1"></i>This can only be set once. Choose carefully.
+                                        </div>
+                                    </div>
+                                <?php endif; ?>
+
                                 <div class="col-12 d-flex flex-wrap gap-2 mt-4">
                                     <button type="submit" class="btn btn-certreefy">
                                         <i class="bi bi-check2-circle"></i> Save profile
@@ -250,7 +311,7 @@ $todayLabel = date('l, F j, Y');
                         </div>
                         <div class="snapshot-row">
                             <span class="text-secondary"><span class="status-dot"></span>Role</span>
-                            <span class="status-ready">Community</span>
+                            <span class="status-ready">Client</span>
                         </div>
                         <div class="snapshot-row">
                             <span class="text-secondary"><span class="status-dot"></span>Status</span>
@@ -267,5 +328,36 @@ $todayLabel = date('l, F j, Y');
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <?php if (!$classificationLocked): ?>
+    <script>
+        (function () {
+            var matrix = <?php echo json_encode(array_map(
+                static fn (array $c): array => ['subtype_label' => $c['subtype_label'], 'subtypes' => $c['subtypes']],
+                permit_matrix_categories()
+            ), JSON_THROW_ON_ERROR); ?>;
+            var selected = <?php echo json_encode($formData['applicant_subtype'], JSON_THROW_ON_ERROR); ?>;
+            var categorySelect = document.getElementById('applicant_category');
+            var subtypeSelect = document.getElementById('applicant_subtype');
+
+            function render() {
+                var category = matrix[categorySelect.value];
+                subtypeSelect.innerHTML = '';
+                if (!category) {
+                    subtypeSelect.appendChild(new Option('Select classification first', ''));
+                    return;
+                }
+                subtypeSelect.appendChild(new Option('Select ' + category.subtype_label.toLowerCase(), ''));
+                category.subtypes.forEach(function (subtype) {
+                    var option = new Option(subtype, subtype);
+                    option.selected = subtype === selected;
+                    subtypeSelect.appendChild(option);
+                });
+            }
+
+            categorySelect.addEventListener('change', function () { selected = ''; render(); });
+            render();
+        })();
+    </script>
+    <?php endif; ?>
 </body>
 </html>

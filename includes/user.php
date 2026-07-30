@@ -3,6 +3,8 @@
  * Shared Community user input, validation, and identity-conflict helpers.
  */
 
+require_once __DIR__ . '/permit_matrix.php';
+
 function empty_user_profile_data(): array
 {
     return [
@@ -13,6 +15,8 @@ function empty_user_profile_data(): array
         'contact'  => '',
         'address'  => '',
         'username' => '',
+        'applicant_category' => '',
+        'applicant_subtype'  => '',
     ];
 }
 
@@ -78,6 +82,29 @@ function validate_user_profile_data(array $data): array
         $errors[] = 'Username is required.';
     } elseif (!preg_match('/^[A-Za-z0-9_.-]{3,50}$/', $data['username'])) {
         $errors[] = 'Username must be 3-50 characters and may contain letters, numbers, underscores, periods, or hyphens.';
+    }
+
+    return $errors;
+}
+
+/**
+ * Permit-matrix classification. Validated separately from the shared profile
+ * fields because staff accounts (RPS/EMS/Superadmin) never carry one.
+ */
+function validate_applicant_classification(array $data): array
+{
+    $errors = [];
+    $category = (string) ($data['applicant_category'] ?? '');
+    $subtype = (string) ($data['applicant_subtype'] ?? '');
+
+    if ($category === '') {
+        $errors[] = 'Applicant classification is required.';
+    } elseif (permit_matrix_category($category) === null) {
+        $errors[] = 'Please select a valid applicant classification.';
+    } elseif ($subtype === '') {
+        $errors[] = 'Specific applicant type is required.';
+    } elseif (!permit_matrix_subtype_is_valid($category, $subtype)) {
+        $errors[] = 'Please select a specific applicant type that belongs to the chosen classification.';
     }
 
     return $errors;

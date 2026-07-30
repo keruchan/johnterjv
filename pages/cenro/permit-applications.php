@@ -113,7 +113,7 @@ try {
                     <div class="text-center py-5">
                         <i class="bi bi-inbox fs-1 text-secondary"></i>
                         <h3 class="h5 mt-3">No submitted applications</h3>
-                        <p class="text-secondary mb-0">Community drafts are not visible in the RPS registry.</p>
+                        <p class="text-secondary mb-0">Client drafts are not visible in the RPS registry.</p>
                     </div>
                 <?php else: ?>
                     <div class="table-responsive">

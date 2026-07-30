@@ -6,6 +6,7 @@
 require_once __DIR__ . '/audit.php';
 require_once __DIR__ . '/notifications.php';
 require_once __DIR__ . '/permit_workflow.php';
+require_once __DIR__ . '/permit_matrix.php';
 
 class PermitValidationException extends InvalidArgumentException
 {
@@ -28,7 +29,12 @@ function new_permit_submission_key(): string
     return bin2hex(random_bytes(32));
 }
 
-function permit_normalize_application_data(array $input): array
+/**
+ * Normalizes posted application input. `$permitCategory` comes from the
+ * applicant's account classification, never from the request, so the permit
+ * type and its checklist cannot be switched by tampering with the form.
+ */
+function permit_normalize_application_data(array $input, ?string $permitCategory = null): array
 {
     $fields = [
         'applicant_type',
@@ -46,6 +52,9 @@ function permit_normalize_application_data(array $input): array
         'latitude',
         'longitude',
         'cutting_purpose',
+        'purpose_option',
+        'area_hectares',
+        'tree_origin',
         'application_notes',
     ];
     $data = [];
@@ -69,6 +78,28 @@ function permit_normalize_application_data(array $input): array
         true
     );
 
+    // A permit's category is fixed by the account. When reloading a stored
+    // application, fall back to the value recorded on the row.
+    $category = $permitCategory ?? trim((string) ($input['permit_category'] ?? ''));
+    $data['permit_category'] = $category === '' ? null : $category;
+    $data['permit_code'] = permit_matrix_category($data['permit_category'])['permit_code'] ?? null;
+
+    $data['filed_by_representative'] = $data['property_relationship'] === 'authorized_representative';
+    $data['condition_answers'] = $data['permit_category'] === null
+        ? []
+        : permit_matrix_normalize_condition_answers($data['permit_category'], $input);
+
+    $area = $data['area_hectares'] === null
+        ? null
+        : filter_var($data['area_hectares'], FILTER_VALIDATE_FLOAT);
+    $data['area_hectares'] = ($area === false || $area === null) ? null : $area;
+
+    $fees = permit_matrix_assess_fees((string) $data['permit_category'], $data['area_hectares']);
+    $data['certification_fee'] = $fees['certification_fee'];
+    $data['oath_fee'] = $fees['oath_fee'];
+    $data['inventory_fee'] = $fees['inventory_fee'];
+    $data['total_fee'] = $fees['total_fee'];
+
     return $data;
 }
 
@@ -89,6 +120,7 @@ function permit_validate_application_data(array $data, bool $forSubmission = tru
         'municipality' => ['Municipality', 100],
         'province' => ['Province', 100],
         'cutting_purpose' => ['Cutting purpose', 500],
+        'purpose_option' => ['Purpose', 255],
         'application_notes' => ['Application notes', 5000],
     ];
 
@@ -112,6 +144,33 @@ function permit_validate_application_data(array $data, bool $forSubmission = tru
         $errors[] = 'Property classification is invalid.';
     }
 
+    $category = $data['permit_category'] ?? null;
+    if ($category !== null && permit_matrix_category($category) === null) {
+        $errors[] = 'The permit classification on this application is invalid.';
+    }
+    if ($category !== null
+        && ($data['purpose_option'] ?? null) !== null
+        && !permit_matrix_purpose_is_valid($category, (string) $data['purpose_option'])) {
+        $errors[] = 'Select a purpose that belongs to your permit classification.';
+    }
+    if (($data['tree_origin'] ?? null) !== null
+        && !array_key_exists((string) $data['tree_origin'], permit_matrix_tree_origins())) {
+        $errors[] = 'Tree origin is invalid.';
+    }
+    if ($category !== null
+        && ($data['tree_origin'] ?? null) === 'balling'
+        && permit_matrix_replacement_rule($category, 'balling') === null) {
+        $errors[] = 'Earth-balling is not available for your permit classification.';
+    }
+    if (($data['area_hectares'] ?? null) !== null) {
+        $area = (float) $data['area_hectares'];
+        if ($area <= 0) {
+            $errors[] = 'Area applied for must be greater than zero.';
+        } elseif ($area > 100000) {
+            $errors[] = 'Area applied for must not exceed 100,000 hectares.';
+        }
+    }
+
     foreach (['latitude' => [-90, 90], 'longitude' => [-180, 180]] as $field => [$minimum, $maximum]) {
         if (($data[$field] ?? null) === null) {
             continue;
@@ -124,6 +183,9 @@ function permit_validate_application_data(array $data, bool $forSubmission = tru
     }
 
     if ($forSubmission) {
+        if ($category === null) {
+            $errors[] = 'Your account has no applicant classification yet. Set it in your profile before submitting.';
+        }
         $requiredFields = [
             'applicant_type' => 'Applicant type',
             'property_relationship' => 'Property relationship',
@@ -135,7 +197,12 @@ function permit_validate_application_data(array $data, bool $forSubmission = tru
             'municipality' => 'Municipality or city',
             'province' => 'Province',
             'cutting_purpose' => 'Purpose of cutting',
+            'purpose_option' => 'Purpose',
+            'tree_origin' => 'Tree origin',
         ];
+        if ($category !== null && (permit_matrix_category($category)['inventory_fee_applies'] ?? false)) {
+            $requiredFields['area_hectares'] = 'Area applied for (hectares)';
+        }
         foreach ($requiredFields as $field => $label) {
             if (trim((string) ($data[$field] ?? '')) === '') {
                 $errors[] = $label . ' is required.';
@@ -345,7 +412,8 @@ function permit_validate_submission_key(string $submissionKey): string
 function permit_load_community_applicant(PDO $pdo, int $userId, bool $forUpdate = false): ?array
 {
     $sql =
-        'SELECT id, fname, mname, lname, email, contact, address, username, role, status
+        'SELECT id, fname, mname, lname, email, contact, address, username, role, status,
+                applicant_category, applicant_subtype
          FROM tbl_users
          WHERE id = :id
          LIMIT 1';
@@ -364,6 +432,16 @@ function permit_load_community_applicant(PDO $pdo, int $userId, bool $forUpdate 
     }
 
     return $applicant;
+}
+
+/** The account-level permit classification, read before normalizing form input. */
+function permit_applicant_category(PDO $pdo, int $userId): ?string
+{
+    $stmt = $pdo->prepare('SELECT applicant_category FROM tbl_users WHERE id = :id LIMIT 1');
+    $stmt->execute([':id' => $userId]);
+    $category = $stmt->fetchColumn();
+
+    return ($category === false || $category === null || $category === '') ? null : (string) $category;
 }
 
 function permit_applicant_name(array $applicant): string
@@ -408,6 +486,18 @@ function permit_application_parameters(
         ':latitude' => $application['latitude'],
         ':longitude' => $application['longitude'],
         ':cutting_purpose' => $application['cutting_purpose'],
+        ':permit_category' => $application['permit_category'],
+        ':permit_code' => $application['permit_code'],
+        ':applicant_subtype' => $applicant['applicant_subtype'] ?? null,
+        ':purpose_option' => $application['purpose_option'],
+        ':area_hectares' => $application['area_hectares'],
+        ':tree_origin' => $application['tree_origin'],
+        ':filed_by_representative' => (int) $application['filed_by_representative'],
+        ':condition_answers' => json_encode($application['condition_answers'], JSON_THROW_ON_ERROR),
+        ':certification_fee' => $application['certification_fee'],
+        ':oath_fee' => $application['oath_fee'],
+        ':inventory_fee' => $application['inventory_fee'],
+        ':total_fee' => $application['total_fee'],
         ':application_notes' => $application['application_notes'],
         ':application_status' => $statuses['application'],
         ':document_status' => $statuses['document'],
@@ -430,6 +520,9 @@ function permit_insert_application_record(PDO $pdo, array $parameters): int
              property_relationship, authorization_details, property_classification,
              property_owner_name, property_address, lot_number, district, barangay,
              municipality, province, latitude, longitude, cutting_purpose,
+             permit_category, permit_code, applicant_subtype, purpose_option,
+             area_hectares, tree_origin, filed_by_representative, condition_answers,
+             certification_fee, oath_fee, inventory_fee, total_fee,
              application_notes, application_status, document_status,
              inspection_status, decision_status, donation_status, release_status,
              validity_status, declaration_confirmed_at, submitted_at)
@@ -439,6 +532,9 @@ function permit_insert_application_record(PDO $pdo, array $parameters): int
              :property_relationship, :authorization_details, :property_classification,
              :property_owner_name, :property_address, :lot_number, :district, :barangay,
              :municipality, :province, :latitude, :longitude, :cutting_purpose,
+             :permit_category, :permit_code, :applicant_subtype, :purpose_option,
+             :area_hectares, :tree_origin, :filed_by_representative, :condition_answers,
+             :certification_fee, :oath_fee, :inventory_fee, :total_fee,
              :application_notes, :application_status, :document_status,
              :inspection_status, :decision_status, :donation_status, :release_status,
              :validity_status, :declaration_confirmed_at, :submitted_at)'
@@ -501,6 +597,18 @@ function permit_update_application_record(
              latitude = :latitude,
              longitude = :longitude,
              cutting_purpose = :cutting_purpose,
+             permit_category = :permit_category,
+             permit_code = :permit_code,
+             applicant_subtype = :applicant_subtype,
+             purpose_option = :purpose_option,
+             area_hectares = :area_hectares,
+             tree_origin = :tree_origin,
+             filed_by_representative = :filed_by_representative,
+             condition_answers = :condition_answers,
+             certification_fee = :certification_fee,
+             oath_fee = :oath_fee,
+             inventory_fee = :inventory_fee,
+             total_fee = :total_fee,
              application_notes = :application_notes'
         . $statusSql .
         ' WHERE id = :application_id
@@ -596,7 +704,10 @@ function save_permit_draft(
         throw new LogicException('Permit draft saving must own its database transaction.');
     }
     $submissionKey = permit_validate_submission_key($submissionKey);
-    $application = permit_normalize_application_data($applicationInput);
+    $application = permit_normalize_application_data(
+        $applicationInput,
+        permit_applicant_category($pdo, $applicantUserId)
+    );
     $trees = permit_normalize_tree_records($treeInput);
     $errors = array_merge(
         permit_validate_application_data($application, false),
@@ -698,7 +809,10 @@ function submit_permit_application(
         throw new LogicException('Permit application submission must own its database transaction.');
     }
     $submissionKey = permit_validate_submission_key($submissionKey);
-    $application = permit_normalize_application_data($applicationInput);
+    $application = permit_normalize_application_data(
+        $applicationInput,
+        permit_applicant_category($pdo, $applicantUserId)
+    );
     $trees = permit_normalize_tree_records($treeInput);
     $errors = array_merge(
         permit_validate_application_data($application, true),
@@ -716,10 +830,10 @@ function submit_permit_application(
         }
         $profileErrors = [];
         if (trim((string) ($applicant['contact'] ?? '')) === '') {
-            $profileErrors[] = 'Add a contact number to your Community profile before submission.';
+            $profileErrors[] = 'Add a contact number to your Client profile before submission.';
         }
         if (trim((string) ($applicant['address'] ?? '')) === '') {
-            $profileErrors[] = 'Add an applicant address to your Community profile before submission.';
+            $profileErrors[] = 'Add an applicant address to your Client profile before submission.';
         }
         if ($profileErrors !== []) {
             throw new PermitValidationException($profileErrors);
@@ -865,7 +979,12 @@ function permit_load_application(PDO $pdo, int $applicationId, bool $forUpdate =
                 applicant_type, organization_name, property_relationship,
                 authorization_details, property_owner_name, property_address,
                 lot_number, district, barangay, municipality, province, latitude,
-                longitude, cutting_purpose, application_notes, application_status, document_status,
+                longitude, cutting_purpose, permit_category, permit_code,
+                applicant_subtype, purpose_option, area_hectares, tree_origin,
+                filed_by_representative, condition_answers, certification_fee,
+                oath_fee, inventory_fee, total_fee, fees_status, fees_confirmed_at,
+                fees_confirmed_by_user_id,
+                application_notes, application_status, document_status,
                 inspection_status, decision_status, donation_status,
                 release_status, validity_status, declaration_confirmed_at,
                 submitted_at, updated_at

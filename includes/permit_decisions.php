@@ -236,7 +236,7 @@ function permit_decision_readiness(
     $documentStmt->execute([':application_id' => $applicationId]);
     $currentDocuments = permit_current_documents_by_type($documentStmt->fetchAll());
     $documentsComplete = (string) $application['document_status'] === 'verified';
-    foreach (permit_document_type_catalog() as $documentType => $definition) {
+    foreach (permit_document_type_catalog($application) as $documentType => $definition) {
         if (empty($definition['required'])) {
             continue;
         }

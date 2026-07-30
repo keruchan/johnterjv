@@ -98,7 +98,7 @@ function verification_email_html(string $firstName, string $verifyLink): string
                             <h1 style="font-size:20px;margin:0 0 16px;color:#1b4332;">Verify your email address</h1>
                             <p style="font-size:14px;line-height:1.6;margin:0 0 16px;">Hi {$safeName},</p>
                             <p style="font-size:14px;line-height:1.6;margin:0 0 24px;">
-                                Thanks for registering a Community account with CERTREEFY. Click the button below to verify
+                                Thanks for registering a Client account with CERTREEFY. Click the button below to verify
                                 your email address and activate your account &mdash; no further waiting required.
                             </p>
                             <table role="presentation" cellpadding="0" cellspacing="0">

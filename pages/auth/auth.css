@@ -62,26 +62,14 @@ body {
     background: var(--paper);
 }
 
-/* ---- Dark canopy side panel ---- */
+/* ---- Photo side panel (CENRO Sta. Cruz office) ---- */
 .auth-side {
     position: relative;
     overflow: hidden;
     color: #eaf3ec;
     background:
-        radial-gradient(120% 80% at 0% 0%, rgba(58, 125, 93, 0.5), transparent 55%),
-        linear-gradient(160deg, var(--canopy-900), var(--canopy-950));
-}
-
-.auth-side .seal-watermark {
-    position: absolute;
-    top: -40px;
-    right: -50px;
-    width: 230px;
-    height: 230px;
-    border: 16px dashed rgba(255, 255, 255, 0.5);
-    border-radius: 50%;
-    opacity: 0.08;
-    pointer-events: none;
+        linear-gradient(190deg, rgba(18, 36, 29, 0.55) 0%, rgba(18, 36, 29, 0.88) 100%),
+        url("../../assets/img/login-background.png") center / cover no-repeat;
 }
 
 .auth-side-body,
@@ -90,42 +78,17 @@ body {
     z-index: 1;
 }
 
-.brand-seal {
-    width: 48px;
-    height: 48px;
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    color: #fff;
-    font-size: 1.25rem;
-    background: radial-gradient(circle at 35% 30%, var(--fern-600), var(--canopy-900) 72%);
-    border: 2px dashed rgba(255, 255, 255, 0.55);
-    box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
-}
-
-.brand-word {
-    font-family: "Fraunces", Georgia, serif;
-    font-size: 1.2rem;
-    font-weight: 700;
-    letter-spacing: 0.01em;
-    line-height: 1.05;
-}
-
-.brand-sub {
-    color: #b9c9bd;
-    font-size: 0.74rem;
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-    margin-top: 0.15rem;
+.brand-wordmark {
+    width: 100%;
+    max-width: 260px;
+    height: auto;
 }
 
 .auth-headline {
     font-family: "Fraunces", Georgia, serif;
     font-size: 1.5rem;
     font-weight: 600;
-    line-height: 1.18;
+    line-height: 1.3;
     color: #fff;
 }
 

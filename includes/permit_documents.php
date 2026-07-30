@@ -7,49 +7,69 @@
 
 require_once __DIR__ . '/permit.php';
 require_once __DIR__ . '/permissions.php';
+require_once __DIR__ . '/permit_matrix.php';
 
 class PermitDocumentValidationException extends InvalidArgumentException
 {
 }
 
-function permit_document_type_catalog(): array
+/**
+ * Turns a matrix requirement into the catalog shape the document services and
+ * views expect.
+ */
+function permit_document_definition_from_requirement(array $requirement): array
 {
-    // This is a configurable digital-intake baseline. The official hardcopy
-    // checklist remains subject to confirmation by CENRO/RPS.
+    $note = $requirement['condition_note'] ?? null;
+
     return [
-        'application_request' => [
-            'label' => 'Application or request document',
-            'description' => 'Signed request or application scan for online intake.',
-            'required' => true,
-        ],
-        'applicant_identification' => [
-            'label' => 'Applicant identification',
-            'description' => 'Identification scan for the applicant or authorized representative.',
-            'required' => true,
-        ],
-        'ownership_authorization' => [
-            'label' => 'Property ownership or authorization',
-            'description' => 'Ownership evidence or the property owner authorization scan.',
-            'required' => true,
-        ],
-        'tree_location_photos' => [
-            'label' => 'Tree and property location photographs',
-            'description' => 'Photographs showing the subject trees and their property location.',
-            'required' => true,
-        ],
-        'supporting_document' => [
-            'label' => 'Additional supporting document',
-            'description' => 'Optional supporting scan requested for the application.',
-            'required' => false,
-        ],
+        'label' => $requirement['label'],
+        'description' => trim(($requirement['copies'] ?? '') . ($note !== null ? ' - ' . $note : '')),
+        'required' => (bool) ($requirement['is_required'] ?? true),
+        'group' => $requirement['group'],
     ];
 }
 
-function permit_document_type(string $documentType): ?array
+/**
+ * The upload checklist an application must satisfy, resolved from the permit
+ * matrix against the application's classification and declarations.
+ *
+ * Passing no application yields the union of every requirement across every
+ * category, which is what label lookups for historical rows need.
+ */
+function permit_document_type_catalog(?array $application = null): array
 {
-    $catalog = permit_document_type_catalog();
+    if ($application === null) {
+        $catalog = [];
+        foreach (permit_matrix_category_keys() as $categoryKey) {
+            foreach (permit_matrix_requirements_for($categoryKey) as $key => $requirement) {
+                $catalog[$key] ??= permit_document_definition_from_requirement(
+                    $requirement + ['is_required' => false]
+                );
+            }
+        }
 
-    return $catalog[$documentType] ?? null;
+        return $catalog;
+    }
+
+    $categoryKey = (string) ($application['permit_category'] ?? '');
+    if ($categoryKey === '') {
+        return [];
+    }
+
+    $area = $application['area_hectares'] === null ? null : (float) $application['area_hectares'];
+    $resolved = permit_matrix_resolved_requirements(
+        $categoryKey,
+        permit_matrix_decode_condition_answers($application['condition_answers'] ?? null),
+        $area,
+        (int) ($application['filed_by_representative'] ?? 0) === 1
+    );
+
+    return array_map('permit_document_definition_from_requirement', $resolved);
+}
+
+function permit_document_type(string $documentType, ?array $application = null): ?array
+{
+    return permit_document_type_catalog($application)[$documentType] ?? null;
 }
 
 function permit_document_allowed_file_types(): array
@@ -735,11 +755,14 @@ function upload_permit_document(
         throw new LogicException('Permit document uploading must own its database transaction.');
     }
     $documentType = trim($documentType);
-    if (permit_document_type($documentType) === null) {
-        throw new PermitDocumentValidationException('The selected document type is invalid.');
-    }
-    if (permit_document_application_for_actor($pdo, $applicationId, $uploaderUserId, 'upload') === null) {
+    $uploadTarget = permit_document_application_for_actor($pdo, $applicationId, $uploaderUserId, 'upload');
+    if ($uploadTarget === null) {
         throw new RuntimeException('This permit application is not eligible for document uploads.');
+    }
+    // Only slots the application's own checklist asks for may be uploaded, so a
+    // tampered form cannot attach documents from another permit type.
+    if (permit_document_type($documentType, $uploadTarget) === null) {
+        throw new PermitDocumentValidationException('The selected document type is not required for this application.');
     }
     $validatedFile = permit_document_validate_uploaded_file($file);
     $storedPath = null;
@@ -900,7 +923,8 @@ function permit_document_summary_target(PDO $pdo, int $applicationId): string
         return 'incomplete';
     }
 
-    foreach (permit_document_type_catalog() as $type => $definition) {
+    $catalog = permit_document_type_catalog(permit_load_application($pdo, $applicationId));
+    foreach ($catalog as $type => $definition) {
         if (!empty($definition['required']) && ($statuses[$type] ?? null) !== 'accepted') {
             return 'under_review';
         }
@@ -910,7 +934,7 @@ function permit_document_summary_target(PDO $pdo, int $applicationId): string
         permit_original_reviews_for_application($pdo, $applicationId)
     );
     $allRequiredOriginalsVerified = true;
-    foreach (permit_document_type_catalog() as $type => $definition) {
+    foreach ($catalog as $type => $definition) {
         if (empty($definition['required'])) {
             continue;
         }
@@ -929,60 +953,88 @@ function permit_document_summary_target(PDO $pdo, int $applicationId): string
     return $allRequiredOriginalsVerified ? 'verified' : 'online_verified';
 }
 
-function review_permit_document(
+
+/**
+ * One-click online review of an application's whole scan set.
+ *
+ * The reviewer only marks the scans that need replacing; everything else is
+ * accepted. The applicant receives a single notification for the batch rather
+ * than one per document.
+ */
+function review_permit_documents_batch(
     PDO $pdo,
-    int $documentId,
+    int $applicationId,
     int $reviewerUserId,
-    string $reviewStatus,
+    array $replacementDocumentIds,
     ?string $reviewNotes = null
 ): array {
     if ($pdo->inTransaction()) {
-        throw new LogicException('Permit document review must own its database transaction.');
+        throw new LogicException('Batch document review must own its database transaction.');
     }
-    $reviewStatus = trim($reviewStatus);
-    $reviewNotes = $reviewNotes === null ? null : trim($reviewNotes);
-    if (!in_array($reviewStatus, permit_document_review_statuses(), true)) {
-        throw new PermitDocumentValidationException('The selected document review status is invalid.');
-    }
-    if ($reviewNotes === '') {
-        $reviewNotes = null;
-    }
+    $reviewNotes = $reviewNotes === null || trim($reviewNotes) === '' ? null : trim($reviewNotes);
     if ($reviewNotes !== null && strlen($reviewNotes) > 1000) {
         throw new PermitDocumentValidationException('Review notes must not exceed 1000 characters.');
     }
-    if (in_array($reviewStatus, ['rejected', 'replacement_required'], true) && $reviewNotes === null) {
-        throw new PermitDocumentValidationException('Review notes are required when rejecting or requesting replacement.');
+    $replacementIds = [];
+    foreach ($replacementDocumentIds as $value) {
+        $value = trim((string) $value);
+        if ($value !== '' && ctype_digit($value) && (int) $value > 0) {
+            $replacementIds[(int) $value] = true;
+        }
+    }
+    if ($replacementIds !== [] && $reviewNotes === null) {
+        throw new PermitDocumentValidationException(
+            'Add a remark explaining what the applicant must correct before requesting a replacement.'
+        );
     }
 
     try {
         $pdo->beginTransaction();
-        $documentStmt = $pdo->prepare(
-            'SELECT id, application_id, document_type, original_filename,
-                    verification_status, is_current
-             FROM tbl_permit_documents
-             WHERE id = :id
-             LIMIT 1
-             FOR UPDATE'
-        );
-        $documentStmt->execute([':id' => $documentId]);
-        $document = $documentStmt->fetch();
-        if (!$document || (int) $document['is_current'] !== 1) {
-            throw new RuntimeException('Only a current permit document may be reviewed.');
-        }
-
         $application = permit_document_application_for_actor(
             $pdo,
-            (int) $document['application_id'],
+            $applicationId,
             $reviewerUserId,
             'review',
             true
         );
         if ($application === null) {
-            throw new RuntimeException('This permit document is not eligible for review.');
+            throw new RuntimeException('This permit application is not eligible for document review.');
         }
-        $previousStatus = (string) $document['verification_status'];
-        if ($previousStatus === $reviewStatus) {
-            throw new PermitDocumentValidationException('The document already has the selected review status.');
+
+        $documentStmt = $pdo->prepare(
+            'SELECT id, document_type, verification_status
+             FROM tbl_permit_documents
+             WHERE application_id = :application_id AND is_current = 1
+             ORDER BY document_type
+             FOR UPDATE'
+        );
+        $documentStmt->execute([':application_id' => $applicationId]);
+        $documents = $documentStmt->fetchAll();
+        if ($documents === []) {
+            throw new PermitDocumentValidationException('There are no submitted scans to review yet.');
+        }
+
+        $catalog = permit_document_type_catalog($application);
+        $missing = [];
+        foreach ($catalog as $type => $definition) {
+            if (empty($definition['required'])) {
+                continue;
+            }
+            $hasScan = false;
+            foreach ($documents as $document) {
+                if ((string) $document['document_type'] === $type) {
+                    $hasScan = true;
+                    break;
+                }
+            }
+            if (!$hasScan) {
+                $missing[] = (string) $definition['label'];
+            }
+        }
+        if ($missing !== [] && $replacementIds === []) {
+            throw new PermitDocumentValidationException(
+                'These required documents have no scan yet: ' . implode(', ', $missing) . '.'
+            );
         }
 
         $update = $pdo->prepare(
@@ -993,13 +1045,6 @@ function review_permit_document(
                  verification_notes = :verification_notes
              WHERE id = :id AND is_current = 1'
         );
-        $update->execute([
-            ':verification_status' => $reviewStatus,
-            ':verified_by_user_id' => $reviewerUserId,
-            ':verification_notes' => $reviewNotes,
-            ':id' => $documentId,
-        ]);
-
         $insertReview = $pdo->prepare(
             'INSERT INTO tbl_permit_document_reviews
                 (application_id, document_id, document_type, review_scope, review_status,
@@ -1008,39 +1053,59 @@ function review_permit_document(
                 (:application_id, :document_id, :document_type, \'online\', :review_status,
                  :reviewed_by_user_id, :review_notes)'
         );
-        $insertReview->execute([
-            ':application_id' => (int) $document['application_id'],
-            ':document_id' => $documentId,
-            ':document_type' => (string) $document['document_type'],
-            ':review_status' => $reviewStatus,
-            ':reviewed_by_user_id' => $reviewerUserId,
-            ':review_notes' => $reviewNotes,
-        ]);
 
-        $summaryTarget = permit_document_summary_target($pdo, (int) $document['application_id']);
+        $replacementLabels = [];
+        foreach ($documents as $document) {
+            $documentId = (int) $document['id'];
+            $needsReplacement = isset($replacementIds[$documentId]);
+            $status = $needsReplacement ? 'replacement_required' : 'accepted';
+
+            $update->execute([
+                ':verification_status' => $status,
+                ':verified_by_user_id' => $reviewerUserId,
+                ':verification_notes' => $needsReplacement ? $reviewNotes : null,
+                ':id' => $documentId,
+            ]);
+            $insertReview->execute([
+                ':application_id' => $applicationId,
+                ':document_id' => $documentId,
+                ':document_type' => (string) $document['document_type'],
+                ':review_status' => $status,
+                ':reviewed_by_user_id' => $reviewerUserId,
+                ':review_notes' => $needsReplacement ? $reviewNotes : null,
+            ]);
+
+            if ($needsReplacement) {
+                $definition = permit_document_type((string) $document['document_type'], $application);
+                $replacementLabels[] = (string) ($definition['label'] ?? $document['document_type']);
+            }
+        }
+
+        $approved = $replacementLabels === [];
+        $summaryTarget = permit_document_summary_target($pdo, $applicationId);
         permit_document_transition_summary(
             $pdo,
             $application,
             $reviewerUserId,
             $summaryTarget,
-            'Online scanned-document review updated.'
+            $approved
+                ? 'Initial online documents approved.'
+                : 'Replacement requested for one or more online documents.'
         );
 
         record_audit_event(
             $pdo,
             $reviewerUserId,
             'verification',
-            'permit_document_' . $reviewStatus,
-            'permit_document',
-            $documentId,
-            'Reviewed a scanned permit document.',
+            $approved ? 'permit_documents_approved' : 'permit_documents_replacement_required',
+            'permit_application',
+            $applicationId,
+            'Completed a one-click online document review.',
             [
-                'application_id' => (int) $document['application_id'],
                 'transaction_id' => (string) $application['transaction_id'],
-                'document_type' => (string) $document['document_type'],
-                'previous_status' => $previousStatus,
-                'new_status' => $reviewStatus,
-                'review_scope' => 'online',
+                'reviewed_count' => count($documents),
+                'replacement_count' => count($replacementLabels),
+                'document_status' => $summaryTarget,
             ]
         );
         create_notification(
@@ -1048,22 +1113,24 @@ function review_permit_document(
             (int) $application['applicant_user_id'],
             $reviewerUserId,
             'permit_status',
-            'Permit document review updated',
-            'The online scan for ' . (permit_document_type((string) $document['document_type'])['label'] ?? 'a permit document')
-                . ' in application ' . $application['transaction_id'] . ' is now '
-                . strtolower(permit_document_status_label($reviewStatus)) . '.',
+            $approved ? 'Initial documents approved' : 'Initial documents rejected',
+            $approved
+                ? 'Your initial submitted documents have been approved. Please submit to the office the original documents.'
+                : 'Your initial submitted documents have been rejected. Please re-upload: '
+                    . implode(', ', $replacementLabels) . '.'
+                    . ($reviewNotes !== null ? ' Remarks: ' . $reviewNotes : ''),
             'permit_application',
-            (int) $document['application_id']
+            $applicationId
         );
 
         $pdo->commit();
 
         return [
-            'document_id' => $documentId,
-            'application_id' => (int) $document['application_id'],
+            'application_id' => $applicationId,
             'transaction_id' => (string) $application['transaction_id'],
-            'previous_status' => $previousStatus,
-            'review_status' => $reviewStatus,
+            'approved' => $approved,
+            'reviewed_count' => count($documents),
+            'replacement_count' => count($replacementLabels),
             'document_status' => $summaryTarget,
         ];
     } catch (Throwable $e) {
@@ -1074,110 +1141,22 @@ function review_permit_document(
     }
 }
 
-function permit_original_boolean_input(array $data, string $key, string $label): bool
-{
-    $value = strtolower(trim((string) ($data[$key] ?? '')));
-    if (in_array($value, ['1', 'true', 'yes', 'on'], true)) {
-        return true;
-    }
-    if (in_array($value, ['0', 'false', 'no', 'off'], true)) {
-        return false;
-    }
-
-    throw new PermitDocumentValidationException('Select yes or no for ' . $label . '.');
-}
-
-function record_original_document_verification(
+/**
+ * One-click confirmation that the applicant presented their original hardcopies
+ * and settled the assessed fees at the office.
+ */
+function verify_permit_originals_and_fees(
     PDO $pdo,
     int $applicationId,
     int $verifierUserId,
-    string $documentType,
-    array $data
+    ?string $remarks = null
 ): array {
     if ($pdo->inTransaction()) {
-        throw new LogicException('Original-document verification must own its database transaction.');
+        throw new LogicException('Original and fee verification must own its database transaction.');
     }
-    $documentType = trim($documentType);
-    $definition = permit_document_type($documentType);
-    if ($definition === null) {
-        throw new PermitDocumentValidationException('The selected document type is invalid.');
-    }
-
-    $originalReceived = permit_original_boolean_input($data, 'original_received', 'original hardcopy received');
-    $wetInkRequired = permit_original_boolean_input($data, 'wet_ink_required', 'wet-ink signature required');
-    $wetInkVerified = permit_original_boolean_input($data, 'wet_ink_verified', 'wet-ink signature verified');
-    $scanCompared = permit_original_boolean_input($data, 'scan_compared_with_original', 'scan comparison');
-    $reviewStatus = trim((string) ($data['review_status'] ?? ''));
-    $reviewNotes = trim((string) ($data['review_notes'] ?? ''));
-    $receivedOn = trim((string) ($data['original_received_on'] ?? ''));
-    $receiverValue = trim((string) ($data['received_by_user_id'] ?? ''));
-    $expectedDocumentValue = trim((string) ($data['expected_document_id'] ?? ''));
-    if ($expectedDocumentValue !== '' && (!ctype_digit($expectedDocumentValue) || (int) $expectedDocumentValue < 1)) {
-        throw new PermitDocumentValidationException('The expected current scan reference is invalid.');
-    }
-    $expectedDocumentId = $expectedDocumentValue === '' ? null : (int) $expectedDocumentValue;
-
-    if (!in_array($reviewStatus, permit_original_review_statuses(), true)) {
-        throw new PermitDocumentValidationException('The selected original verification result is invalid.');
-    }
-    if (strlen($reviewNotes) > 1000) {
+    $remarks = $remarks === null || trim($remarks) === '' ? null : trim($remarks);
+    if ($remarks !== null && strlen($remarks) > 1000) {
         throw new PermitDocumentValidationException('Verification remarks must not exceed 1000 characters.');
-    }
-    if ($scanCompared && !$originalReceived) {
-        throw new PermitDocumentValidationException('A scan cannot be compared before the original hardcopy is received.');
-    }
-    if ($wetInkVerified && (!$wetInkRequired || !$originalReceived)) {
-        throw new PermitDocumentValidationException('Wet-ink verification requires a received original and a required wet-ink signature.');
-    }
-    if (!$wetInkRequired) {
-        $wetInkVerified = false;
-    }
-
-    $receivedByUserId = null;
-    if ($originalReceived) {
-        if ($receivedOn === '') {
-            throw new PermitDocumentValidationException('The original hardcopy receipt date is required.');
-        }
-        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $receivedOn);
-        $dateErrors = DateTimeImmutable::getLastErrors();
-        if ($date === false
-            || ($dateErrors !== false && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0))
-            || $date->format('Y-m-d') !== $receivedOn) {
-            throw new PermitDocumentValidationException('The original hardcopy receipt date is invalid.');
-        }
-        if ($date > new DateTimeImmutable('today')) {
-            throw new PermitDocumentValidationException('The original hardcopy receipt date cannot be in the future.');
-        }
-        if (!ctype_digit($receiverValue) || (int) $receiverValue < 1) {
-            throw new PermitDocumentValidationException('Select the personnel who received the original hardcopy.');
-        }
-        $receivedByUserId = (int) $receiverValue;
-    } else {
-        if ($receivedOn !== '' || $receiverValue !== '') {
-            throw new PermitDocumentValidationException('Receipt date and receiving personnel must be blank when no original was received.');
-        }
-        $receivedOn = null;
-        $wetInkVerified = false;
-        $scanCompared = false;
-    }
-
-    if ($reviewStatus === 'verified'
-        && (!$originalReceived || ($wetInkRequired && !$wetInkVerified) || !$scanCompared)) {
-        throw new PermitDocumentValidationException(
-            'A verified result requires the original hardcopy, any required wet-ink signature, and scan comparison.'
-        );
-    }
-    if ($reviewStatus === 'rejected' && !$originalReceived) {
-        throw new PermitDocumentValidationException('An original hardcopy must be received before it can be rejected.');
-    }
-    if ((in_array($reviewStatus, ['rejected', 'replacement_required'], true)
-            || !$originalReceived
-            || ($wetInkRequired && !$wetInkVerified))
-        && $reviewNotes === '') {
-        throw new PermitDocumentValidationException('Verification remarks are required when applicant action is needed.');
-    }
-    if ($reviewNotes === '') {
-        $reviewNotes = null;
     }
 
     try {
@@ -1192,57 +1171,38 @@ function record_original_document_verification(
         if ($application === null) {
             throw new RuntimeException('This permit application is not eligible for original-document verification.');
         }
-        if ($receivedByUserId !== null
-            && permit_original_verification_actor($pdo, $receivedByUserId) === null) {
-            throw new PermitDocumentValidationException('The selected receiving personnel is not authorized or active.');
-        }
 
         $documentStmt = $pdo->prepare(
-            'SELECT id, verification_status
+            'SELECT id, document_type, verification_status
              FROM tbl_permit_documents
-             WHERE application_id = :application_id
-               AND document_type = :document_type
-               AND is_current = 1
-             ORDER BY id DESC
-             LIMIT 1
+             WHERE application_id = :application_id AND is_current = 1
+             ORDER BY document_type
              FOR UPDATE'
         );
-        $documentStmt->execute([
-            ':application_id' => $applicationId,
-            ':document_type' => $documentType,
-        ]);
-        $currentDocument = $documentStmt->fetch();
-        $currentDocumentId = $currentDocument ? (int) $currentDocument['id'] : null;
-        if ($currentDocumentId !== $expectedDocumentId) {
-            throw new PermitDocumentValidationException(
-                'The current scan changed after this page was loaded. Review the latest scan and try again.'
-            );
+        $documentStmt->execute([':application_id' => $applicationId]);
+        $documentsByType = [];
+        foreach ($documentStmt->fetchAll() as $document) {
+            $documentsByType[(string) $document['document_type']] = $document;
         }
-        if ($scanCompared && !$currentDocument) {
-            throw new PermitDocumentValidationException('Upload a current scan before recording scan comparison.');
+
+        $catalog = permit_document_type_catalog($application);
+        $blocking = [];
+        foreach ($catalog as $type => $definition) {
+            if (empty($definition['required'])) {
+                continue;
+            }
+            $document = $documentsByType[$type] ?? null;
+            if ($document === null || (string) $document['verification_status'] !== 'accepted') {
+                $blocking[] = (string) $definition['label'];
+            }
         }
-        if ($reviewStatus === 'verified'
-            && (!$currentDocument || (string) $currentDocument['verification_status'] !== 'accepted')) {
+        if ($blocking !== []) {
             throw new PermitDocumentValidationException(
-                'The current scan must pass online review before its original can be marked verified.'
+                'Approve the online scans first. Still pending: ' . implode(', ', $blocking) . '.'
             );
         }
 
-        $previousReview = permit_latest_original_review($pdo, $applicationId, $documentType, true);
-        $documentId = $currentDocumentId;
-        if ($previousReview !== null
-            && (int) ($previousReview['document_id'] ?? 0) === (int) ($documentId ?? 0)
-            && (string) $previousReview['review_status'] === $reviewStatus
-            && (int) $previousReview['original_received'] === (int) $originalReceived
-            && (string) ($previousReview['original_received_on'] ?? '') === (string) ($receivedOn ?? '')
-            && (int) ($previousReview['received_by_user_id'] ?? 0) === (int) ($receivedByUserId ?? 0)
-            && (int) $previousReview['wet_ink_required'] === (int) $wetInkRequired
-            && (int) $previousReview['wet_ink_verified'] === (int) $wetInkVerified
-            && (int) $previousReview['scan_compared_with_original'] === (int) $scanCompared
-            && (string) ($previousReview['review_notes'] ?? '') === (string) ($reviewNotes ?? '')) {
-            throw new PermitDocumentValidationException('This original-document verification decision is already recorded.');
-        }
-
+        $today = date('Y-m-d');
         $insert = $pdo->prepare(
             'INSERT INTO tbl_permit_document_reviews
                 (application_id, document_id, document_type, review_scope,
@@ -1252,27 +1212,42 @@ function record_original_document_verification(
                  reviewed_by_user_id, review_notes)
              VALUES
                 (:application_id, :document_id, :document_type, \'original\',
-                 :review_status, :previous_review_id, :original_received,
-                 :original_received_on, :received_by_user_id, :wet_ink_required,
-                 :wet_ink_verified, :scan_compared_with_original,
+                 \'verified\', :previous_review_id, 1,
+                 :original_received_on, :received_by_user_id, 0,
+                 0, 1,
                  :reviewed_by_user_id, :review_notes)'
         );
-        $insert->execute([
+
+        $verifiedCount = 0;
+        foreach ($catalog as $type => $definition) {
+            if (empty($definition['required'])) {
+                continue;
+            }
+            $previousReview = permit_latest_original_review($pdo, $applicationId, $type, true);
+            $insert->execute([
+                ':application_id' => $applicationId,
+                ':document_id' => (int) $documentsByType[$type]['id'],
+                ':document_type' => $type,
+                ':previous_review_id' => $previousReview ? (int) $previousReview['id'] : null,
+                ':original_received_on' => $today,
+                ':received_by_user_id' => $verifierUserId,
+                ':reviewed_by_user_id' => $verifierUserId,
+                ':review_notes' => $remarks,
+            ]);
+            $verifiedCount++;
+        }
+
+        $feeUpdate = $pdo->prepare(
+            'UPDATE tbl_permit_applications
+             SET fees_status = \'paid\',
+                 fees_confirmed_at = CURRENT_TIMESTAMP,
+                 fees_confirmed_by_user_id = :verifier
+             WHERE id = :application_id'
+        );
+        $feeUpdate->execute([
+            ':verifier' => $verifierUserId,
             ':application_id' => $applicationId,
-            ':document_id' => $documentId,
-            ':document_type' => $documentType,
-            ':review_status' => $reviewStatus,
-            ':previous_review_id' => $previousReview ? (int) $previousReview['id'] : null,
-            ':original_received' => (int) $originalReceived,
-            ':original_received_on' => $receivedOn,
-            ':received_by_user_id' => $receivedByUserId,
-            ':wet_ink_required' => (int) $wetInkRequired,
-            ':wet_ink_verified' => (int) $wetInkVerified,
-            ':scan_compared_with_original' => (int) $scanCompared,
-            ':reviewed_by_user_id' => $verifierUserId,
-            ':review_notes' => $reviewNotes,
         ]);
-        $reviewId = (int) $pdo->lastInsertId();
 
         $summaryTarget = permit_document_summary_target($pdo, $applicationId);
         permit_document_transition_summary(
@@ -1280,46 +1255,35 @@ function record_original_document_verification(
             $application,
             $verifierUserId,
             $summaryTarget,
-            'Original hardcopy and wet-ink verification updated.'
+            'Original documents received and assessed fees settled.'
         );
 
+        $totalFee = (float) ($application['total_fee'] ?? 0);
         record_audit_event(
             $pdo,
             $verifierUserId,
             'verification',
-            'permit_original_document_' . $reviewStatus,
-            'permit_document_review',
-            $reviewId,
-            'Recorded an original permit document verification decision.',
+            'permit_originals_and_fees_verified',
+            'permit_application',
+            $applicationId,
+            'Confirmed original documents and fee payment in one action.',
             [
-                'application_id' => $applicationId,
                 'transaction_id' => (string) $application['transaction_id'],
-                'document_type' => $documentType,
-                'document_id' => $documentId,
-                'previous_review_id' => $previousReview ? (int) $previousReview['id'] : null,
-                'original_received' => $originalReceived,
-                'original_received_on' => $receivedOn,
-                'received_by_user_id' => $receivedByUserId,
-                'wet_ink_required' => $wetInkRequired,
-                'wet_ink_verified' => $wetInkVerified,
-                'scan_compared_with_original' => $scanCompared,
-                'review_status' => $reviewStatus,
+                'verified_document_count' => $verifiedCount,
+                'total_fee' => $totalFee,
+                'document_status' => $summaryTarget,
             ]
         );
-
-        $actionRequired = !$originalReceived
-            || in_array($reviewStatus, ['rejected', 'replacement_required'], true)
-            || ($wetInkRequired && !$wetInkVerified);
         create_notification(
             $pdo,
             (int) $application['applicant_user_id'],
             $verifierUserId,
             'permit_status',
-            $actionRequired ? 'Original document action required' : 'Original document verification updated',
-            'Application ' . $application['transaction_id'] . ': '
-                . (string) $definition['label'] . ' is now '
-                . strtolower(permit_original_review_status_label($reviewStatus)) . '.'
-                . ($actionRequired ? ' Review the recorded remarks and provide the requested action.' : ''),
+            'Original documents and fees verified',
+            'Your original documents have been verified and your fees of '
+                . permit_matrix_format_peso($totalFee)
+                . ' have been received. Your application now proceeds to site inspection.'
+                . ($remarks !== null ? ' Remarks: ' . $remarks : ''),
             'permit_application',
             $applicationId
         );
@@ -1327,13 +1291,11 @@ function record_original_document_verification(
         $pdo->commit();
 
         return [
-            'review_id' => $reviewId,
             'application_id' => $applicationId,
             'transaction_id' => (string) $application['transaction_id'],
-            'document_type' => $documentType,
-            'review_status' => $reviewStatus,
+            'verified_document_count' => $verifiedCount,
+            'total_fee' => $totalFee,
             'document_status' => $summaryTarget,
-            'previous_review_id' => $previousReview ? (int) $previousReview['id'] : null,
         ];
     } catch (Throwable $e) {
         if ($pdo->inTransaction()) {
@@ -1342,6 +1304,7 @@ function record_original_document_verification(
         throw $e;
     }
 }
+
 
 function permit_list_applications_for_rps(PDO $pdo, int $rpsUserId): array
 {

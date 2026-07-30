@@ -10,7 +10,7 @@ require_once __DIR__ . '/../../includes/view.php';
 require_role($pdo, 'community');
 
 $currentRole = (string) $_SESSION['role'];
-$displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Community User';
+$displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Client User';
 
 $filters = ['q' => substr(trim((string) ($_GET['q'] ?? '')), 0, 100)];
 
@@ -47,7 +47,7 @@ try {
                 <div class="seal-watermark" aria-hidden="true"></div>
                 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
                     <div>
-                        <div class="eyebrow">Community</div>
+                        <div class="eyebrow">Client</div>
                         <h1 class="page-title">Advisories</h1>
                         <p class="text-secondary meta-copy mb-0">Public environmental posts, notices, and office announcements from CENRO.</p>
                     </div>

@@ -69,6 +69,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     $errors = array_merge($errors, validate_user_profile_data($formData));
+    $errors = array_merge($errors, validate_applicant_classification($formData));
 
     if ($password === '') {
         $errors[] = 'Password is required.';
@@ -111,9 +112,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $insertStmt = $pdo->prepare(
                     'INSERT INTO tbl_users
-                        (fname, mname, lname, email, contact, address, username, password, role, status)
+                        (fname, mname, lname, email, contact, address, username, password, role, status,
+                         applicant_category, applicant_subtype)
                      VALUES
-                        (:fname, :mname, :lname, :email, :contact, :address, :username, :password, :role, :status)'
+                        (:fname, :mname, :lname, :email, :contact, :address, :username, :password, :role, :status,
+                         :applicant_category, :applicant_subtype)'
                 );
 
                 $insertStmt->execute([
@@ -127,6 +130,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     ':password' => $passwordHash,
                     ':role'     => $role,
                     ':status'   => $status,
+                    ':applicant_category' => $formData['applicant_category'],
+                    ':applicant_subtype'  => $formData['applicant_subtype'],
                 ]);
 
                 $newUserId = (int) $pdo->lastInsertId();
@@ -163,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>CERTREEFY | Community Registration</title>
+    <title>CERTREEFY | Client Registration</title>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -180,15 +185,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="col-12 col-lg-11 col-xl-10">
                     <div class="card auth-card">
                         <div class="row g-0">
-                            <div class="col-lg-5 auth-side p-4 d-flex flex-column">
-                                <div class="seal-watermark" aria-hidden="true"></div>
+                            <div class="col-lg-5 auth-side p-4 d-flex flex-column justify-content-center text-center">
                                 <div class="auth-side-body">
-                                    <a href="../index.php" class="d-flex align-items-center gap-3 mb-3 text-white text-decoration-none">
-                                        <span class="brand-seal" aria-hidden="true"><i class="bi bi-tree-fill"></i></span>
-                                        <span>
-                                            <span class="brand-word d-block">CERTREEFY</span>
-                                            <span class="brand-sub d-block">Districts 3 &amp; 4, Laguna</span>
-                                        </span>
+                                    <a href="../index.php" class="d-inline-block mb-3">
+                                        <img src="../../assets/img/certreefy-wordmark-light.png" alt="CERTREEFY" class="brand-wordmark">
                                     </a>
 
                                     <h2 class="auth-headline mb-2">Create your community account</h2>
@@ -203,7 +203,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                             <div class="col-lg-7">
                                 <div class="p-4">
-                                    <p class="section-label mb-1">Community access</p>
+                                    <p class="section-label mb-1">Client access</p>
                                     <h2 class="auth-title mb-3">Register a permit portal account</h2>
 
                                     <?php if ($successMessage !== ''): ?>
@@ -267,6 +267,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                                 <input type="text" class="form-control" id="username" name="username" value="<?php echo e($formData['username']); ?>" maxlength="50" autocomplete="username" required>
                                             </div>
 
+                                            <div class="col-12">
+                                                <hr class="my-1">
+                                                <p class="section-label mb-1">Applicant classification</p>
+                                                <p class="small text-secondary mb-2">This determines which tree cutting permit, requirements, and fees apply to your applications.</p>
+                                            </div>
+
+                                            <div class="col-md-6">
+                                                <label for="applicant_category" class="form-label">Classification</label>
+                                                <select class="form-select" id="applicant_category" name="applicant_category" required>
+                                                    <option value="">Select classification</option>
+                                                    <?php foreach (permit_matrix_categories() as $categoryKey => $category): ?>
+                                                        <option value="<?php echo e($categoryKey); ?>"<?php echo $formData['applicant_category'] === $categoryKey ? ' selected' : ''; ?>>
+                                                            <?php echo e($category['label'] . ' - ' . $category['permit_code']); ?>
+                                                        </option>
+                                                    <?php endforeach; ?>
+                                                </select>
+                                            </div>
+
+                                            <div class="col-md-6">
+                                                <label for="applicant_subtype" class="form-label">Specific applicant type</label>
+                                                <select class="form-select" id="applicant_subtype" name="applicant_subtype" required>
+                                                    <option value="">Select classification first</option>
+                                                </select>
+                                            </div>
+
+                                            <div class="col-12">
+                                                <div class="auth-note p-2 px-3 d-none" id="permitPreview">
+                                                    <p class="note-title mb-1"><i class="bi bi-file-earmark-text me-1"></i><span id="permitPreviewTitle"></span></p>
+                                                    <p class="small text-secondary mb-0" id="permitPreviewMeta"></p>
+                                                </div>
+                                            </div>
+
                                             <div class="col-md-6">
                                                 <label for="password" class="form-label">Password</label>
                                                 <div class="input-affix">
@@ -303,6 +335,53 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </main>
 
     <script>
+        var permitMatrix = <?php echo json_encode(array_map(static fn (array $c): array => [
+            'label' => $c['label'],
+            'permit_code' => $c['permit_code'],
+            'permit_title' => $c['permit_title'],
+            'form_code' => $c['form_code'],
+            'classification' => $c['classification'],
+            'subtype_label' => $c['subtype_label'],
+            'subtypes' => $c['subtypes'],
+        ], permit_matrix_categories()), JSON_THROW_ON_ERROR); ?>;
+        var selectedSubtype = <?php echo json_encode($formData['applicant_subtype'], JSON_THROW_ON_ERROR); ?>;
+
+        (function () {
+            var categorySelect = document.getElementById('applicant_category');
+            var subtypeSelect = document.getElementById('applicant_subtype');
+            var preview = document.getElementById('permitPreview');
+            var previewTitle = document.getElementById('permitPreviewTitle');
+            var previewMeta = document.getElementById('permitPreviewMeta');
+
+            function render() {
+                var category = permitMatrix[categorySelect.value];
+                subtypeSelect.innerHTML = '';
+
+                if (!category) {
+                    subtypeSelect.appendChild(new Option('Select classification first', ''));
+                    preview.classList.add('d-none');
+                    return;
+                }
+
+                subtypeSelect.appendChild(new Option('Select ' + category.subtype_label.toLowerCase(), ''));
+                category.subtypes.forEach(function (subtype) {
+                    var option = new Option(subtype, subtype);
+                    option.selected = subtype === selectedSubtype;
+                    subtypeSelect.appendChild(option);
+                });
+
+                previewTitle.textContent = category.permit_code + ' - ' + category.permit_title;
+                previewMeta.textContent = 'Form ' + category.form_code + ' | ' + category.classification;
+                preview.classList.remove('d-none');
+            }
+
+            categorySelect.addEventListener('change', function () {
+                selectedSubtype = '';
+                render();
+            });
+            render();
+        })();
+
         document.querySelectorAll('.toggle-password').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 var input = document.getElementById(btn.dataset.target);

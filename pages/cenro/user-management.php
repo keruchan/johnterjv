@@ -751,7 +751,7 @@ $filters['page'] = $userList['page'];
                             <div>
                                 <div class="eyebrow mb-1">CENRO Superadmin &middot; Account Registry</div>
                                 <h2 class="modal-title fs-5" id="addUserModalLabel">Add User Account</h2>
-                                <p class="account-modal-subtitle mb-0">Create an active account for Community, RPS, or EMS access.</p>
+                                <p class="account-modal-subtitle mb-0">Create an active account for Client, RPS, or EMS access.</p>
                             </div>
                         </div>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
@@ -762,7 +762,7 @@ $filters['page'] = $userList['page'];
                                 <?php foreach ($errors as $error): ?><div><?php echo e($error); ?></div><?php endforeach; ?>
                             </div>
                         <?php endif; ?>
-                        <p class="small text-secondary">Creates an active RPS, EMS, or Community account. Superadmin accounts can't be created here.</p>
+                        <p class="small text-secondary">Creates an active RPS, EMS, or Client account. Superadmin accounts can't be created here.</p>
 
                         <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_user_management_token']); ?>">
                         <input type="hidden" name="action" value="create_user">

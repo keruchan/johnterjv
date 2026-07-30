@@ -104,7 +104,7 @@ try {
                 </div>
             <?php endif; ?>
 
-            <div class="alert alert-light border mb-4"><i class="bi bi-info-circle me-1"></i>Shown to Community users on the Seedling Request page. Soil/moisture/season may start from public datasets — refine with field knowledge; every field is editable.</div>
+            <div class="alert alert-light border mb-4"><i class="bi bi-info-circle me-1"></i>Shown to Client users on the Seedling Request page. Soil/moisture/season may start from public datasets — refine with field knowledge; every field is editable.</div>
 
             <section class="docket-panel mb-4" aria-labelledby="siteMapHeading">
                 <div class="section-heading">
@@ -302,7 +302,7 @@ try {
                                 <div class="form-check">
                                     <input type="hidden" name="is_active" value="0">
                                     <input class="form-check-input" type="checkbox" id="editSiteIsActive" name="is_active" value="1">
-                                    <label class="form-check-label" for="editSiteIsActive">Active (visible to Community users)</label>
+                                    <label class="form-check-label" for="editSiteIsActive">Active (visible to Client users)</label>
                                 </div>
                             </div>
                         </div>

@@ -283,7 +283,7 @@ try {
                         <div class="mb-3"><label class="form-label" for="editNotes">Notes</label><input class="form-control" id="editNotes" type="text" name="notes" maxlength="500"></div>
                         <div class="form-check">
                             <input class="form-check-input" type="checkbox" id="editIsActive" name="is_active" value="1">
-                            <label class="form-check-label" for="editIsActive">Active (visible to Community for requests)</label>
+                            <label class="form-check-label" for="editIsActive">Active (visible to Client for requests)</label>
                         </div>
                     </div>
                     <div class="modal-footer">
