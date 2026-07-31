@@ -176,7 +176,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 
-    <link rel="stylesheet" href="auth.css">
+    <link rel="stylesheet" href="auth.css?v=2">
 </head>
 <body>
     <main class="auth-shell d-flex align-items-center py-3">
@@ -188,7 +188,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="col-lg-5 auth-side p-4 d-flex flex-column justify-content-center text-center">
                                 <div class="auth-side-body">
                                     <a href="../index.php" class="d-inline-block mb-3">
-                                        <img src="../../assets/img/certreefy-wordmark-light.png" alt="CERTREEFY" class="brand-wordmark">
+                                        <img src="../../assets/img/certreefy-wordmark-light.png" alt="CERTREEFY" class="brand-wordmark" width="260" height="146">
                                     </a>
 
                                     <h2 class="auth-headline mb-2">Create your community account</h2>

@@ -470,7 +470,7 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
     <nav class="navbar navbar-expand-lg navbar-certreefy sticky-top" aria-label="Primary navigation">
       <div class="container">
         <a class="navbar-brand" href="#home">
-          <img src="../assets/img/certreefy-logo.png" alt="CERTREEFY" class="logo-badge">
+          <img src="../assets/img/certreefy-logo.png" alt="CERTREEFY" class="logo-badge" width="44" height="44">
         </a>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNav"
                 aria-controls="mainNav" aria-expanded="false" aria-label="Toggle navigation">
@@ -518,7 +518,7 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
     <section id="home" class="hero-section text-center">
       <div class="container">
         <div class="mx-auto" style="max-width:760px;" data-aos="fade-up">
-          <img src="../assets/img/certreefy-wordmark.png" alt="CERTREEFY" class="hero-wordmark mb-2">
+          <img src="../assets/img/certreefy-wordmark.png" alt="CERTREEFY" class="hero-wordmark mb-2" width="420" height="236">
           <h1 class="mb-3">Growing a Greener Laguna</h1>
           <span class="eyebrow d-inline-block mb-3"><i class="bi bi-patch-check-fill me-1"></i>Official CENRO Sta. Cruz Platform &middot; Districts 3 &amp; 4, Laguna</span>
           <p class="lead-text mx-auto mb-4">
@@ -988,7 +988,7 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
       <div class="row g-4">
         <div class="col-lg-4">
           <a class="navbar-brand text-white d-flex align-items-center gap-2 mb-3" href="#home">
-            <img src="../assets/img/certreefy-logo.png" alt="CERTREEFY" class="logo-badge">
+            <img src="../assets/img/certreefy-logo.png" alt="CERTREEFY" class="logo-badge" width="44" height="44">
             CERTREEFY
           </a>
           <p class="small">

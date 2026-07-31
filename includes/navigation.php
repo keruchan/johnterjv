@@ -384,7 +384,7 @@ function render_certreefy_navigation(string $role, string $activePage, array $pe
     <aside class="sidebar" aria-label="<?php echo htmlspecialchars($shell['aria_label'], ENT_QUOTES, 'UTF-8'); ?>">
         <div class="sidebar-head">
             <a class="brand-block" href="../index.php" title="Go to the CERTREEFY home page">
-                <img src="../../assets/img/certreefy-wordmark-light.png" alt="CERTREEFY" class="brand-wordmark">
+                <img src="../../assets/img/certreefy-wordmark-light.png" alt="CERTREEFY" class="brand-wordmark" width="190" height="107">
                 <div class="brand-sub"><?php echo htmlspecialchars($shell['brand_subtitle'], ENT_QUOTES, 'UTF-8'); ?></div>
             </a>
         </div>

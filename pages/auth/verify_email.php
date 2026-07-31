@@ -109,7 +109,7 @@ $presentation = $statePresentation[$state];
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 
-    <link rel="stylesheet" href="auth.css">
+    <link rel="stylesheet" href="auth.css?v=2">
     <style>
         .verify-shell { min-height: 100vh; animation: authRise 0.5s ease both; }
         @media (prefers-reduced-motion: reduce) { .verify-shell { animation: none; } }
