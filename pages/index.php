@@ -84,6 +84,7 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
 
   <style>
     :root{
+      font-size:90%;
       --forest-deep:#2d6a4f;   /* fern-600 — primary action green (dashboard palette) */
       --forest-fresh:#3a7d5d;  /* fern-500 */
       --leaf-light:#dcebde;    /* soft sprout tint */
@@ -95,6 +96,9 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
     }
 
     *{scroll-behavior:smooth;}
+
+    /* Contain horizontal reveal animations without creating a page scrollbar. */
+    main{overflow-x:clip;}
 
     body{
       font-family:'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;
@@ -972,7 +976,7 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
           <div class="col-lg-7" data-aos="fade-left">
             <!-- Site boundary map (drawn zones from CENRO Area Management) -->
             <div class="map-placeholder h-100 d-flex align-items-center justify-content-center bg-white">
-              <div id="siteBoundaryMap" class="site-boundary-map" role="img" aria-label="Map of the CENRO Sta. Cruz jurisdiction site boundary covering Districts 3 and 4 of Laguna"></div>
+              <div id="siteBoundaryMap" class="site-boundary-map" role="img" aria-label="Map of Laguna, Philippines, with CENRO managed zones"></div>
             </div>
           </div>
         </div>
@@ -1053,17 +1057,16 @@ $primaryCtaHref = $isAuthenticated ? $viewerDashboardPath : 'auth/login.php';
   <script src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
   <!-- Leaflet + CERTREEFY geomapping helpers (site boundary map) -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script src="../js/geo-map.js"></script>
+  <?php geo_render_map_script('../'); ?>
   <script>
     AOS.init({ duration: 700, once: true, easing: 'ease-out-cubic' });
 
     if (window.CertreefyGeo) {
-      // Default view stays zoomed out to Districts 3 & 4 as a whole (the
-      // CertreefyGeo default center/zoom) rather than auto-fitting to the
-      // drawn boundary — the boundary is still overlaid and stays visible,
-      // zoomable, and clickable within that wider view.
-      var boundaryMap = CertreefyGeo.baseMap('siteBoundaryMap', { scrollWheelZoom: false });
-      CertreefyGeo.zonesOverlay(boundaryMap, CertreefyGeo.readJson('siteBoundaryMapData', []));
+      CertreefyGeo.display('siteBoundaryMap', {
+        scrollWheelZoom: false,
+        boundary: <?php echo json_encode(geo_laguna_boundary(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+        zones: CertreefyGeo.readJson('siteBoundaryMapData', [])
+      });
     }
   </script>
 </body>

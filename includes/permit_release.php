@@ -1007,6 +1007,9 @@ function permit_record_cutting_completion(
         if ($application === null) {
             throw new RuntimeException('The permit application does not exist.');
         }
+        if ((int) ($application['intake_version'] ?? 1) >= 2) {
+            throw new RuntimeException('The client must report cutting completion and EMS must record final verification.');
+        }
         if ((string) $application['validity_status'] !== 'active'
             || (string) $application['application_status'] !== 'released') {
             throw new RuntimeException('Cutting completion can be recorded only for an active released permit.');

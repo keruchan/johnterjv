@@ -1508,6 +1508,8 @@ SQL;
     $pdo->exec($createAdvisoryHistoryTable);
     echo "Advisory status history table is ready.<br>\n";
 
+    $pdo->exec(file_get_contents(__DIR__ . '/record_visibility_schema.sql'));
+    echo "Personal archive/delete storage is ready.<br>\n";
     echo "<strong>Done.</strong> Please delete this file (`create_database_and_tables.php`) after successful execution.";
 
 } catch (PDOException $e) {

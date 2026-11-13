@@ -7,6 +7,7 @@
    ============================================================ */
 
 :root {
+    font-size: 90%;
     --canopy-950: #12241d;
     --canopy-900: #1b4332;
     --canopy-800: #235843;
@@ -23,6 +24,7 @@
     --radius-md: 10px;
     --radius-lg: 14px;
 }
+
 
 * {
     box-sizing: border-box;
@@ -217,4 +219,11 @@ button:focus-visible,
 .form-control:focus-visible {
     outline: 2.5px solid var(--fern-600);
     outline-offset: 2px;
+}
+
+@media (max-width: 767.98px) {
+    .form-control,
+    .form-select {
+        font-size: 16px;
+    }
 }

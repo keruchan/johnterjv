@@ -12,6 +12,7 @@ function notification_types(): array
         'system_announcement',
         'seedling_request',
         'illegal_logging_report',
+        'record_visibility',
     ];
 }
 
@@ -253,6 +254,12 @@ function notification_route(string $role, ?string $entityType, ?int $entityId): 
     $isCenro = in_array($role, ['rps', 'superadmin'], true);
 
     switch ($entityType) {
+        case 'permit_completion_report':
+            if ($role === 'ems') { return 'permit-final-verification.php?application_id=' . $entityId . '#cutting-final-verification'; }
+            if ($role === 'community' || $isCenro) { return 'permit-application.php?id=' . $entityId . '#cutting-final-verification'; }
+            return null;
+        case 'record_visibility_action':
+            return '../records/activity.php?event=' . $entityId;
         case 'permit_application':
             if ($role === 'ems') {
                 return 'donation-receipt.php?application_id=' . $entityId;
@@ -296,6 +303,7 @@ function notification_icon(string $type): string
         'system_announcement' => 'bi-megaphone',
         'seedling_request' => 'bi-flower1',
         'illegal_logging_report' => 'bi-shield-exclamation',
+        'record_visibility' => 'bi-archive',
         default => 'bi-bell',
     };
 }

@@ -6,6 +6,8 @@
 
 require_once __DIR__ . '/permit.php';
 require_once __DIR__ . '/permissions.php';
+require_once __DIR__ . '/permit_tally.php';
+require_once __DIR__ . '/seedling_recommendations.php';
 
 function permit_donation_policy_catalog(): array
 {
@@ -41,6 +43,20 @@ function permit_donation_policy_basis(array $policy): string
 {
     return (string) $policy['label'] . ' version ' . (string) $policy['version']
         . ' applied at approval (' . (int) $policy['count'] . ' seedlings).';
+}
+
+/** New intakes use the validated inspection tally; historical approvals keep their policy. */
+function permit_donation_policy_for_application(PDO $pdo, array $application): array
+{
+    if ((int) ($application['intake_version'] ?? 1) < 2) {
+        return permit_donation_policy_for_classification((string) $application['property_classification']);
+    }
+    $tally = permit_tally_current($pdo, (int) $application['id'], $pdo->inTransaction());
+    if ($tally === null) { throw new RuntimeException('Upload the site-visit tally before approving this application.'); }
+    return ['code'=>'tree_origin_tally', 'version'=>'1', 'count'=>(int) $tally['replacement_count'],
+        'label'=>'Validated inspection tally #'.$tally['id'].'; '.$tally['natural_count'].' Natural × 100 + '.$tally['planted_count'].' Planted × 50',
+        'instructions'=>(string) PERMIT_DONATION_INSTRUCTIONS,
+        'tree_count'=>(int) $tally['tree_count']];
 }
 
 function permit_donation_actor(PDO $pdo, int $actorUserId): ?array
@@ -127,6 +143,7 @@ function permit_donation_requirement_for_actor(PDO $pdo, int $applicationId, int
     $stmt->execute([':application_id' => $applicationId]);
     $requirement = $stmt->fetch();
 
+    if ($requirement) { $requirement['suggested_species'] = seedling_donation_recommendations($pdo,$requirement); }
     return $requirement ?: null;
 }
 
@@ -232,7 +249,7 @@ function create_permit_donation_requirement(
         throw new RuntimeException('A donation requirement may be created only for an approved application.');
     }
     $classification = (string) ($application['property_classification'] ?? '');
-    $configuredPolicy = permit_donation_policy_for_classification($classification);
+    $configuredPolicy = permit_donation_policy_for_application($pdo, $application);
     foreach (['code', 'version', 'count', 'label', 'instructions'] as $field) {
         if (!array_key_exists($field, $policy)
             || (string) $policy[$field] !== (string) $configuredPolicy[$field]) {
@@ -283,18 +300,19 @@ function create_permit_donation_requirement(
             (:application_id, :approval_decision_id, :property_classification,
              :policy_code, :policy_version, :required_seedling_count,
              0, :requirement_basis, :applicant_instructions,
-             :imposed_by_user_id, \'required\')'
+             :imposed_by_user_id, :requirement_status)'
     );
     $insert->execute([
         ':application_id' => (int) $application['id'],
         ':approval_decision_id' => $approvalDecisionId,
-        ':property_classification' => $classification,
+        ':property_classification' => $classification !== '' ? $classification : null,
         ':policy_code' => (string) $policy['code'],
         ':policy_version' => (string) $policy['version'],
         ':required_seedling_count' => (int) $policy['count'],
         ':requirement_basis' => $basis,
         ':applicant_instructions' => (string) $policy['instructions'],
         ':imposed_by_user_id' => $actorUserId,
+        ':requirement_status' => (int)$policy['count'] === 0 ? 'waived' : 'required',
     ]);
 
     return (int) $pdo->lastInsertId();

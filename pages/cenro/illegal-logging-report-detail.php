@@ -64,7 +64,7 @@ $outcomes = illegal_logging_resolution_outcomes();
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -238,7 +238,7 @@ $outcomes = illegal_logging_resolution_outcomes();
     <?php if ($report['latitude'] !== null && $report['longitude'] !== null): ?>
         <script type="application/json" id="zoneMapData"><?php echo json_encode($zoneMapFeatures, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <script src="../../js/geo-map.js"></script>
+        <?php geo_render_map_script('../../'); ?>
         <script>
             CertreefyGeo.display('incidentSiteMap', {
                 zones: CertreefyGeo.readJson('zoneMapData', []),

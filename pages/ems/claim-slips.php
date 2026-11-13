@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/seedling.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'ems');
 
@@ -18,8 +19,9 @@ $filters = [
 ];
 
 try {
-    $requests = seedling_claim_slip_requests($pdo, $filters);
-    $all = seedling_claim_slip_requests($pdo, []);
+    $requests = seedling_claim_slip_requests($pdo, array_replace($filters, ['status' => '']));
+    $requests = record_visibility_filter($pdo, $requests, 'seedling_request');
+    $all = registry_date_rows($requests, 'fulfilled_at');
 } catch (PDOException $e) {
     error_log('[CERTREEFY CLAIM SLIPS LOAD ERROR] ' . $e->getMessage());
     http_response_code(500);
@@ -35,6 +37,9 @@ foreach ($all as $r) {
         $claimedCount++;
     }
 }
+$registryPredicates = registry_request_predicates();
+$requests = registry_category_rows($all, $registryPredicates);
+if (in_array($filters['status'], ['ready_for_pickup', 'claimed'], true)) { $requests = array_values(array_filter($requests, static fn ($r) => $r['current_status'] === $filters['status'])); }
 ?>
 <!doctype html>
 <html lang="en">
@@ -48,7 +53,7 @@ foreach ($all as $r) {
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -78,32 +83,33 @@ foreach ($all as $r) {
                 </svg>
             </section>
 
+            <?php render_registry_date_filter('Pickup readiness dates'); ?>
             <section class="row g-3 mb-4" aria-label="Claim summary">
                 <div class="col-sm-6 col-xl-4">
-                    <div class="ledger-card stagger-1">
+                    <a class="ledger-card summary-card stagger-1" <?php echo registry_card_attributes('ready'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-hourglass-split"></i></span><span class="ledger-tag">Awaiting</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $readyCount; ?></div>
                         <div class="ledger-caption">Ready for pickup</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-4">
-                    <div class="ledger-card accent-teal stagger-2">
+                    <a class="ledger-card summary-card accent-teal stagger-2" <?php echo registry_card_attributes('claimed'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-check2-circle"></i></span><span class="ledger-tag">Claimed</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $claimedCount; ?></div>
                         <div class="ledger-caption">Already picked up</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-4">
-                    <div class="ledger-card accent-amber stagger-3">
+                    <a class="ledger-card summary-card accent-amber stagger-3" <?php echo registry_card_attributes('all'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-clipboard-check"></i></span><span class="ledger-tag">Total</span></div>
                         <div class="ledger-value tabular"><?php echo (int) ($readyCount + $claimedCount); ?></div>
                         <div class="ledger-caption">Claim records</div>
-                    </div>
+                        </a>
                 </div>
             </section>
 
             <section class="docket-panel mb-4" aria-label="Claim filters">
-                <form method="get" action="claim-slips.php" class="row g-3 align-items-end">
+                <form method="get" action="claim-slips.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <div class="col-lg-6">
                         <label for="claimSearch" class="form-label">Search</label>
                         <div class="input-group">
@@ -131,7 +137,8 @@ foreach ($all as $r) {
                     <h2 id="claimRegistryHeading">Claim Registry</h2>
                     <span class="section-note tabular"><?php echo count($requests); ?> record<?php echo count($requests) === 1 ? '' : 's'; ?></span>
                 </div>
-                <div class="table-responsive">
+                <?php render_record_visibility_tabs('seedling_request'); ?>
+                    <div class="table-responsive">
                     <table class="table align-middle mb-0" data-table-tools data-tt-search="false">
                         <thead>
                             <tr>
@@ -141,7 +148,7 @@ foreach ($all as $r) {
                                 <th scope="col">Status</th>
                                 <th scope="col">Ready since</th>
                                 <th scope="col">Claimed by</th>
-                                <th scope="col" class="text-end">Slip</th>
+                                <th scope="col" class="text-end">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -150,7 +157,7 @@ foreach ($all as $r) {
                             <?php endif; ?>
                             <?php foreach ($requests as $r): ?>
                                 <tr>
-                                    <td class="fw-semibold"><?php echo e((string) ($r['request_reference'] ?? ('#' . $r['id']))); ?></td>
+                                    <td class="fw-semibold"><a class="record-link" data-row-link href="claim-slip.php?request=<?php echo (int) $r['id']; ?>" target="_blank" rel="noopener"><?php echo e((string) ($r['request_reference'] ?? ('#' . $r['id']))); ?></a></td>
                                     <td><?php echo e((string) $r['requester_name']); ?></td>
                                     <td class="text-end tabular"><?php echo (int) $r['total_approved']; ?></td>
                                     <td><span class="badge <?php echo e(seedling_request_status_badge((string) $r['current_status'])); ?>"><?php echo e(seedling_request_status_label((string) $r['current_status'])); ?></span></td>
@@ -163,10 +170,11 @@ foreach ($all as $r) {
                                             <span class="text-secondary">Not yet claimed</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="text-end">
+                                    <td class="text-end" data-record-actions>
                                         <a class="btn btn-sm btn-outline-secondary" href="claim-slip.php?request=<?php echo (int) $r['id']; ?>" target="_blank" rel="noopener">
                                             <i class="bi bi-printer"></i> Print
                                         </a>
+                                        <?php render_record_actions('seedling_request', (int) $r['id'], (string) $r['request_reference']); ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -178,6 +186,5 @@ foreach ($all as $r) {
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>

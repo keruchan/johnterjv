@@ -11,6 +11,9 @@ require_once __DIR__ . '/../../includes/permit_donation_view.php';
 require_once __DIR__ . '/../../includes/permit_release.php';
 require_once __DIR__ . '/../../includes/area_management.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/permit_guidance.php';
+require_once __DIR__ . '/../../includes/permit_completion.php';
+require_once __DIR__ . '/../../includes/permit_tarpaulin.php';
 
 require_roles($pdo, ['rps', 'superadmin']);
 
@@ -139,7 +142,7 @@ $decisionLockReason = permit_decision_lock_reason($application);
 $donationPolicy = null;
 if ($canDecideApplications) {
     try {
-        $donationPolicy = permit_donation_policy_for_classification((string) $application['property_classification']);
+        $donationPolicy = permit_donation_policy_for_application($pdo, $application);
     } catch (RuntimeException $e) {
         $donationPolicy = null;
     }
@@ -186,7 +189,7 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body data-bs-spy="scroll" data-bs-target="#pageSubNav" data-bs-offset="130" tabindex="0">
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -217,6 +220,7 @@ try {
             <?php if (is_array($decisionFlash)): ?><div class="alert alert-<?php echo ($decisionFlash['type'] ?? '') === 'success' ? 'success' : 'danger'; ?>" role="alert"><?php echo e((string) ($decisionFlash['message'] ?? 'The review action could not be completed.')); ?></div><?php endif; ?>
             <?php if (is_array($releaseFlash)): ?><div class="alert alert-<?php echo ($releaseFlash['type'] ?? '') === 'success' ? 'success' : 'danger'; ?>" role="alert"><?php echo e((string) ($releaseFlash['message'] ?? 'The release action could not be completed.')); ?></div><?php endif; ?>
 
+            <?php render_permit_next_steps($application); ?>
             <section class="row g-3 mb-3 page-anchor-section" id="overview">
                 <div class="col-xl-8">
                     <div class="docket-panel h-100">
@@ -225,13 +229,15 @@ try {
                             <div class="col-md-6"><div class="small text-secondary">Applicant</div><div class="fw-semibold"><?php echo e((string) $application['applicant_name']); ?></div></div>
                             <div class="col-md-6"><div class="small text-secondary">Contact</div><div class="fw-semibold"><?php echo e((string) ($application['applicant_contact'] ?? 'Not provided')); ?></div></div>
                             <div class="col-md-6"><div class="small text-secondary">Property owner</div><div class="fw-semibold"><?php echo e((string) $application['property_owner_name']); ?></div></div>
+                            <?php if (!empty($application['property_classification'])): ?>
                             <div class="col-md-6"><div class="small text-secondary">Classification</div><div class="fw-semibold"><?php echo e(permit_status_label((string) $application['property_classification'])); ?></div></div>
+                            <?php endif; ?>
                             <div class="col-12"><div class="small text-secondary">Property location</div><div class="fw-semibold"><?php echo e(implode(', ', array_filter([(string) $application['property_address'], (string) $application['barangay'], (string) $application['municipality'], (string) $application['province']]))); ?></div></div>
-                            <div class="col-12"><div class="small text-secondary">Purpose of cutting</div><div><?php echo e((string) $application['cutting_purpose']); ?></div></div>
+                            <div class="col-12"><div class="small text-secondary">Purpose of cutting</div><div><?php echo e((string) ($application['purpose_option'] ?? $application['cutting_purpose'] ?? '—')); ?></div></div>
                             <?php if ($application['latitude'] !== null && $application['longitude'] !== null): ?>
                                 <div class="col-12">
                                     <div class="small text-secondary mb-1">Site map for area visitation <span class="text-muted">(managed zones overlaid for reference)</span></div>
-                                    <div id="propertySiteMap" class="geo-map" role="img" aria-label="Map of the application property location"></div>
+                                    <div id="propertySiteMap" class="geo-map geo-map-tall" role="img" aria-label="Map of the application property location in Laguna"></div>
                                 </div>
                             <?php endif; ?>
                         </div>
@@ -320,7 +326,7 @@ try {
 
             <section class="docket-panel mb-3 page-anchor-section" id="release-workflow" aria-labelledby="release-workflow-heading">
                 <div class="section-heading d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
-                    <div><h2 id="release-workflow-heading">Donation Confirmation, Release &amp; Validity</h2><span class="section-note">Final RPS confirmation, signed-permit release, and cutting completion</span></div>
+                    <div><h2 id="release-workflow-heading">Donation Confirmation, Release &amp; Validity</h2><span class="section-note text-wrap">Final RPS confirmation, signed-permit release, and cutting completion</span></div>
                     <span class="badge <?php echo $validitySnapshot['is_expired'] || (string) $application['validity_status'] === 'expired' ? 'text-bg-danger' : ((string) $application['validity_status'] === 'active' ? 'text-bg-success' : 'text-bg-light border'); ?>"><?php echo e(permit_status_label((string) $application['validity_status'])); ?></span>
                 </div>
                 <div class="alert alert-light border" role="note"><i class="bi bi-shield-check me-1"></i>Fixed <?php echo (int) $durationBounds['min']; ?>&ndash;<?php echo (int) $durationBounds['max']; ?>-day term — no extension or reactivation. If it expires before cutting is done, a new application is needed.</div>
@@ -418,7 +424,7 @@ try {
                                 <div class="col-12"><label class="form-label" for="releaseNotes">Release notes (optional)</label><textarea class="form-control" id="releaseNotes" name="release_notes" rows="2" maxlength="1000"></textarea></div>
                             </form>
                         </div>
-                    <?php elseif ((string) $application['validity_status'] === 'active' && (string) $application['application_status'] === 'released' && $cuttingCompletion === null): ?>
+                    <?php elseif ((string) $application['validity_status'] === 'active' && (string) $application['application_status'] === 'released' && $cuttingCompletion === null && (int)($application['intake_version'] ?? 1) < 2): ?>
                         <div class="border rounded p-3 mb-3">
                             <h3 class="h6"><i class="bi bi-tree me-1"></i>Record cutting completion</h3>
                             <p class="small text-secondary">Record the cutting outcome while the permit is active — this closes the transaction.</p>
@@ -444,8 +450,8 @@ try {
 
             <section class="docket-panel mb-3 page-anchor-section" id="trees" aria-labelledby="trees-heading">
                 <div class="section-heading"><h2 id="trees-heading">Tree Records</h2><span class="section-note"><?php echo count($trees); ?> record<?php echo count($trees) === 1 ? '' : 's'; ?></span></div>
-                <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Common name</th><th>Scientific name</th><th>Quantity</th><th>Diameter</th><th>Height</th></tr></thead><tbody>
-                    <?php foreach ($trees as $tree): ?><tr><td><?php echo e((string) $tree['common_name']); ?></td><td><?php echo e((string) ($tree['scientific_name'] ?? '-')); ?></td><td><?php echo e((string) $tree['quantity']); ?></td><td><?php echo $tree['diameter_cm'] !== null ? e((string) $tree['diameter_cm']) . ' cm' : '-'; ?></td><td><?php echo $tree['estimated_height_m'] !== null ? e((string) $tree['estimated_height_m']) . ' m' : '-'; ?></td></tr><?php endforeach; ?>
+                <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Common name</th><th>Scientific name</th><th>Origin</th><th>Quantity</th><th>Diameter</th><th>Height</th></tr></thead><tbody>
+                    <?php foreach ($trees as $tree): ?><tr><td><?php echo e((string) $tree['common_name']); ?></td><td><?php echo e((string) ($tree['scientific_name'] ?? '-')); ?></td><td><?php echo e(permit_matrix_tree_origins()[$tree['tree_origin'] ?? $application['tree_origin'] ?? ''] ?? 'Not recorded'); ?></td><td><?php echo e((string) $tree['quantity']); ?></td><td><?php echo $tree['diameter_cm'] !== null ? e((string) $tree['diameter_cm']) . ' cm' : '-'; ?></td><td><?php echo $tree['estimated_height_m'] !== null ? e((string) $tree['estimated_height_m']) . ' m' : '-'; ?></td></tr><?php endforeach; ?>
                 </tbody></table></div>
             </section>
 
@@ -557,7 +563,7 @@ try {
                                                 <div class="text-break fw-semibold"><?php echo e((string) $document['original_filename']); ?></div>
                                                 <small class="text-secondary"><?php echo e(number_format((int) $document['file_size_bytes'] / 1024, 1)); ?> KB &middot; <?php echo e((string) $document['uploader_name']); ?></small>
                                                 <div class="mt-1"><span class="badge <?php echo e(permit_document_status_badge((string) $document['verification_status'])); ?>"><?php echo e(permit_document_status_label((string) $document['verification_status'])); ?></span></div>
-                                                <?php if (!empty($document['verification_notes'])): ?><div class="small mt-1 text-break"><?php echo e((string) $document['verification_notes']); ?></div><?php endif; ?>
+                                                <?php if (!empty($document['verification_notes'])): ?><div class="small mt-1 text-break"><strong>Scan review remarks:</strong> <?php echo e((string) $document['verification_notes']); ?></div><?php endif; ?>
                                             <?php endif; ?>
                                         </td>
                                         <td>
@@ -569,6 +575,7 @@ try {
                                                     <?php echo e(date('M j, Y', strtotime((string) $original['original_received_on']))); ?>
                                                     &middot; <?php echo e((string) $original['verifier_name']); ?>
                                                 </div>
+                                                <?php if (!empty($original['review_notes'])): ?><div class="small mt-1 text-break"><strong>Original review remarks:</strong> <?php echo e((string) $original['review_notes']); ?></div><?php endif; ?>
                                             <?php endif; ?>
                                         </td>
                                         <td class="text-center">
@@ -591,6 +598,7 @@ try {
                         <div class="border rounded p-3 mb-3">
                             <p class="fw-semibold mb-1">Step 1 &middot; Initial online documents</p>
                             <p class="small text-secondary">Tick only the documents the applicant must replace. Leave everything unticked to approve the whole set in one click.</p>
+                            <label for="reviewReason" class="form-label">Replacement reason</label><select class="form-select mb-2" id="reviewReason" name="review_reason" data-permit-reason="review_notes"><option value="">Select reason</option><?php foreach (permit_reason_options('document') as $key=>$label): ?><option value="<?php echo e($key); ?>"><?php echo e($label); ?></option><?php endforeach; ?></select>
                             <label for="review_notes" class="form-label">Remarks <span class="small text-secondary">(required only when requesting a replacement)</span></label>
                             <textarea class="form-control mb-3" id="review_notes" name="review_notes" rows="2" maxlength="1000"></textarea>
                             <button type="submit" class="btn btn-certreefy"><i class="bi bi-check2-circle me-1"></i>Submit document review</button>
@@ -637,6 +645,9 @@ try {
             </section>
             <?php endif; ?>
             <?php if (!$canViewDocuments): ?><a href="permit-applications.php" class="btn btn-outline-secondary mt-4"><i class="bi bi-arrow-left"></i> Back to applications</a><?php endif; ?>
+            <?php if ($application !== null && $application['transaction_id'] !== null): render_permit_tally($pdo, $application, $canManageInspections); endif; ?>
+            <?php if ($application !== null): render_permit_completion_panel($pdo, $application, (int)$_SESSION['id']); endif; ?>
+            <?php if ($application !== null): render_permit_tarpaulin($pdo, $application, $canDecideApplications); endif; ?>
         </main>
     </div>
 
@@ -678,7 +689,7 @@ try {
     <div class="modal fade" id="declinePermitModal" tabindex="-1" aria-labelledby="declinePermitModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><form method="post" action="permit-decision-action.php">
             <div class="modal-header"><div><div class="eyebrow">RPS decision</div><h2 class="modal-title fs-5" id="declinePermitModalLabel">Decline application</h2></div><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
-            <div class="modal-body"><input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_decision_token']); ?>"><input type="hidden" name="application_id" value="<?php echo $applicationId; ?>"><input type="hidden" name="expected_decision_id" value="<?php echo (int) ($latestDecision['id'] ?? 0); ?>"><input type="hidden" name="action" value="decline"><div class="alert alert-danger"><i class="bi bi-lock me-1"></i>A declined application is locked from inappropriate further processing. All records and history are preserved.</div><label class="form-label" for="declineRemarks">Decline reason</label><textarea class="form-control" id="declineRemarks" name="decision_notes" rows="4" maxlength="1000" required></textarea></div>
+            <div class="modal-body"><input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_decision_token']); ?>"><input type="hidden" name="application_id" value="<?php echo $applicationId; ?>"><input type="hidden" name="expected_decision_id" value="<?php echo (int) ($latestDecision['id'] ?? 0); ?>"><input type="hidden" name="action" value="decline"><div class="alert alert-danger"><i class="bi bi-lock me-1"></i>A declined application is locked from inappropriate further processing. All records and history are preserved.</div><label class="form-label" for="declineReason">Decline reason</label><select class="form-select mb-3" id="declineReason" name="decision_reason" data-permit-reason="declineRemarks" required><option value="">Select reason</option><?php foreach (permit_reason_options('decline') as $key=>$label): ?><option value="<?php echo e($key); ?>"><?php echo e($label); ?></option><?php endforeach; ?></select><label class="form-label" for="declineRemarks">Additional remarks</label><textarea class="form-control" id="declineRemarks" name="decision_notes" rows="4" maxlength="900"></textarea></div>
             <div class="modal-footer"><button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button><button type="submit" class="btn btn-danger">Record decline</button></div>
         </form></div></div>
     </div>
@@ -758,12 +769,14 @@ try {
     <script type="application/json" id="zoneMapData"><?php echo json_encode($zoneMapFeatures, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="../../js/geo-map.js"></script>
+    <?php geo_render_map_script('../../'); ?>
     <script>
         (() => {
             const zones = CertreefyGeo.readJson('zoneMapData', []);
+            const lagunaBoundary = <?php echo json_encode(geo_laguna_boundary(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
             <?php if ($application['latitude'] !== null && $application['longitude'] !== null): ?>
             CertreefyGeo.display('propertySiteMap', {
+                boundary: lagunaBoundary,
                 zones: zones,
                 points: [{
                     lat: <?php echo json_encode((string) $application['latitude']); ?>,
@@ -786,6 +799,7 @@ try {
                     inspectionPickerMap = CertreefyGeo.picker('inspectionPickerMap', {
                         latInput: 'inspectionLatitude',
                         lngInput: 'inspectionLongitude',
+                        boundary: lagunaBoundary,
                         zones: zones
                     });
                 });
@@ -805,5 +819,6 @@ try {
         });
     </script>
     <?php endif; ?>
+<script src="../../js/permit-reasons.js?v=<?php echo e(certreefy_asset_version('js/permit-reasons.js')); ?>"></script>
 </body>
 </html>

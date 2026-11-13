@@ -4,6 +4,7 @@
  */
 
 require_once __DIR__ . '/audit.php';
+require_once __DIR__ . '/registry_filters.php';
 require_once __DIR__ . '/notifications.php';
 
 function user_management_role_labels(): array
@@ -50,6 +51,8 @@ function user_management_normalize_filters(array $input): array
         'role'   => array_key_exists($role, $roles) ? $role : '',
         'status' => array_key_exists($status, $statuses) ? $status : '',
         'page'   => $page === false ? 1 : (int) $page,
+        'date_from' => is_string($input['date_from'] ?? '') ? ($input['date_from'] ?? '') : 'invalid',
+        'date_to' => is_string($input['date_to'] ?? '') ? ($input['date_to'] ?? '') : 'invalid',
     ];
 }
 
@@ -111,6 +114,7 @@ function user_management_list(PDO $pdo, array $filters, int $perPage = 10): arra
         $params[':status'] = $filters['status'];
     }
 
+    registry_sql_dates($where, $params, 'created_at', $filters);
     $whereSql = $where === [] ? '' : ' WHERE ' . implode(' AND ', $where);
     $countStmt = $pdo->prepare('SELECT COUNT(*) FROM tbl_users' . $whereSql);
     $countStmt->execute($params);
@@ -143,10 +147,15 @@ function user_management_list(PDO $pdo, array $filters, int $perPage = 10): arra
     ];
 }
 
-function user_management_status_counts(PDO $pdo): array
+function user_management_status_counts(PDO $pdo, array $filters = []): array
 {
     $counts = array_fill_keys(array_keys(user_management_status_labels()), 0);
-    $stmt = $pdo->query('SELECT status, COUNT(*) AS total FROM tbl_users GROUP BY status');
+    $where = []; $params = [];
+    registry_sql_dates($where, $params, 'created_at', $filters);
+    if (!empty($filters['role'])) { $where[] = 'role = :role'; $params[':role'] = $filters['role']; }
+    if (!empty($filters['q'])) { $where[] = "CONCAT_WS(' ', fname, COALESCE(mname, ''), lname, email, username, COALESCE(contact, '')) LIKE :search"; $params[':search'] = '%' . $filters['q'] . '%'; }
+    $stmt = $pdo->prepare('SELECT status, COUNT(*) AS total FROM tbl_users' . ($where ? ' WHERE ' . implode(' AND ', $where) : '') . ' GROUP BY status');
+    $stmt->execute($params);
 
     foreach ($stmt->fetchAll() as $row) {
         $status = (string) $row['status'];

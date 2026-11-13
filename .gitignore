@@ -1,2 +1,5 @@
 # SMTP credentials — never commit
 config/mail_config.php
+
+# Machine-specific database connection (keep deployed defaults unchanged)
+config/database.local.php

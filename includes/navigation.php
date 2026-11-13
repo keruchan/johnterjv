@@ -9,6 +9,8 @@
 
 require_once __DIR__ . '/permissions.php';
 require_once __DIR__ . '/notifications.php';
+require_once __DIR__ . '/view.php';
+require_once __DIR__ . '/record_visibility_view.php';
 
 /** Renders a notification bell button. Both bells (sidebar + mobile) share one panel/badge via JS. */
 function render_certreefy_notification_bell(string $placement): void
@@ -75,14 +77,6 @@ function certreefy_navigation_items_for_role(string $role, array $permissions = 
             'href' => 'permit-applications.php',
             'icon' => 'bi-file-earmark-plus',
             'label' => 'Tree Permit',
-        ],
-        [
-            'key' => 'application_status',
-            'roles' => ['community'],
-            'section' => 'Permits',
-            'href' => 'permit-applications.php#applications',
-            'icon' => 'bi-clock-history',
-            'label' => 'Application Status',
         ],
         [
             'key' => 'seedling_request',
@@ -211,6 +205,14 @@ function certreefy_navigation_items_for_role(string $role, array $permissions = 
             'label' => 'Permit Donations',
         ],
         [
+            'key' => 'permit_final_verification',
+            'roles' => ['ems'],
+            'section' => 'Donations',
+            'href' => 'permit-final-verification.php',
+            'icon' => 'bi-clipboard-check',
+            'label' => 'Final Verification',
+        ],
+        [
             'key' => 'seed_inventory',
             'roles' => ['ems'],
             'section' => 'Seedlings',
@@ -243,6 +245,14 @@ function certreefy_navigation_items_for_role(string $role, array $permissions = 
             'label' => 'Planting Sites',
         ],
         [
+            'key' => 'seedling_providers',
+            'roles' => ['ems'],
+            'section' => 'Seedlings',
+            'href' => 'seedling-providers.php',
+            'icon' => 'bi-shop',
+            'label' => 'Seedling Providers',
+        ],
+        [
             'key' => 'stock_movement',
             'roles' => ['ems'],
             'section' => 'Seedlings',
@@ -257,6 +267,14 @@ function certreefy_navigation_items_for_role(string $role, array $permissions = 
             'href' => 'inventory-reports.php',
             'icon' => 'bi-file-earmark-bar-graph',
             'label' => 'Inventory Reports',
+        ],
+        [
+            'key' => 'record_activity',
+            'roles' => ['community', 'rps', 'ems', 'superadmin'],
+            'section' => 'Account',
+            'href' => '../records/activity.php',
+            'icon' => 'bi-clock-history',
+            'label' => 'Record Activity',
         ],
     ];
 
@@ -436,6 +454,8 @@ function render_certreefy_navigation(string $role, string $activePage, array $pe
     </div>
 
     <?php render_certreefy_notification_panel(); ?>
+    <?php render_record_visibility_ui(); ?>
     <script src="../../js/notifications.js?v=2" defer></script>
+    <script src="../../js/table-tools.js?v=<?php echo e(certreefy_asset_version('js/table-tools.js')); ?>" defer></script>
     <?php
 }

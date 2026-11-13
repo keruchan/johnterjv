@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/advisory.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_roles($pdo, ['rps', 'superadmin']);
 
@@ -36,8 +37,14 @@ $filters = [
 ];
 
 try {
-    $advisories = advisory_list($pdo, $filters);
-    $summary = advisory_summary($pdo);
+    $advisories = advisory_list($pdo, array_replace($filters, ['status' => '']));
+    $advisories = record_visibility_filter($pdo, $advisories, 'advisory');
+    $registryRows = registry_date_rows($advisories, 'created_at');
+    $registryPredicates = [];
+    foreach (array_keys(advisory_statuses()) as $status) { $registryPredicates[$status] = static fn ($r) => $r['current_status'] === $status; }
+    $summary = registry_counts($registryRows, $registryPredicates);
+    $advisories = registry_category_rows($registryRows, $registryPredicates);
+    if (isset($registryPredicates[$filters['status']])) { $advisories = array_values(array_filter($advisories, $registryPredicates[$filters['status']])); }
 } catch (PDOException $e) {
     error_log('[CERTREEFY ADVISORIES LOAD ERROR] ' . $e->getMessage());
     http_response_code(500);
@@ -56,7 +63,7 @@ try {
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -95,27 +102,28 @@ try {
 
             <div class="alert alert-light border mb-4"><i class="bi bi-info-circle me-1"></i><strong>Published</strong> posts show to Client users; marking <strong>Show on public homepage</strong> also adds them to the landing-page carousel. Image optional. Drafts and archived posts stay private.</div>
 
+            <?php render_registry_date_filter('Announcement creation dates'); ?>
             <section class="row g-3 mb-4" aria-label="Advisory summary">
                 <div class="col-sm-6 col-xl-4">
-                    <div class="ledger-card stagger-1">
+                    <a class="ledger-card summary-card stagger-1" <?php echo registry_card_attributes('draft'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-file-earmark-text"></i></span><span class="ledger-tag">Draft</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['draft']; ?></div>
                         <div class="ledger-caption">Awaiting publication</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-4">
-                    <div class="ledger-card accent-teal stagger-2">
+                    <a class="ledger-card summary-card accent-teal stagger-2" <?php echo registry_card_attributes('published'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-megaphone"></i></span><span class="ledger-tag">Published</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['published']; ?></div>
                         <div class="ledger-caption">Visible to Client</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-4">
-                    <div class="ledger-card accent-amber stagger-3">
+                    <a class="ledger-card summary-card accent-amber stagger-3" <?php echo registry_card_attributes('archived'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-archive"></i></span><span class="ledger-tag">Archived</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['archived']; ?></div>
                         <div class="ledger-caption">Retired posts</div>
-                    </div>
+                        </a>
                 </div>
             </section>
 
@@ -140,7 +148,7 @@ try {
             </section>
 
             <section class="docket-panel mb-4" aria-label="Advisory filters">
-                <form method="get" action="advisories.php" class="row g-3 align-items-end">
+                <form method="get" action="advisories.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <div class="col-lg-6">
                         <label for="advisorySearch" class="form-label">Search</label>
                         <div class="input-group">
@@ -169,7 +177,8 @@ try {
                     <h2 id="advisoryRegistryHeading">Advisory Registry</h2>
                     <span class="section-note tabular"><?php echo count($advisories); ?> advisor<?php echo count($advisories) === 1 ? 'y' : 'ies'; ?></span>
                 </div>
-                <div class="table-responsive">
+                <?php render_record_visibility_tabs('advisory'); ?>
+                    <div class="table-responsive">
                     <table class="table align-middle mb-0" data-table-tools data-tt-search="false">
                         <thead>
                             <tr>
@@ -208,9 +217,9 @@ try {
                                     </td>
                                     <td class="small text-secondary"><?php echo $advisory['event_at'] !== null ? e(date('M j, Y g:i A', strtotime((string) $advisory['event_at']))) : '&mdash;'; ?></td>
                                     <td class="small text-secondary"><?php echo $advisory['published_at'] !== null ? e(date('M j, Y g:i A', strtotime((string) $advisory['published_at']))) : '&mdash;'; ?></td>
-                                    <td class="text-end">
+                                    <td class="text-end" data-record-actions>
                                         <div class="btn-group">
-                                            <button class="btn btn-sm btn-outline-primary edit-advisory-action" type="button" data-bs-toggle="modal" data-bs-target="#editAdvisoryModal"
+                                            <button class="btn btn-sm btn-outline-primary edit-advisory-action" data-row-trigger type="button" data-bs-toggle="modal" data-bs-target="#editAdvisoryModal"
                                                 data-advisory-id="<?php echo (int) $advisory['id']; ?>"
                                                 data-title="<?php echo e((string) $advisory['title']); ?>"
                                                 data-body="<?php echo e((string) $advisory['body']); ?>"
@@ -218,22 +227,14 @@ try {
                                                 data-event-at="<?php echo $advisory['event_at'] !== null ? e(date('Y-m-d\TH:i', strtotime((string) $advisory['event_at']))) : ''; ?>"
                                                 data-image-url="<?php echo $imageUrl !== null ? e('../../' . $imageUrl) : ''; ?>"
                                             ><i class="bi bi-pencil"></i></button>
-                                            <?php if ((string) $advisory['current_status'] === 'draft'): ?>
+                                            <?php $isPublished = (string) $advisory['current_status'] === 'published'; ?>
                                                 <form method="post" action="advisory-action.php" class="d-inline">
                                                     <input type="hidden" name="csrf_token" value="<?php echo e($csrfToken); ?>">
-                                                    <input type="hidden" name="action" value="publish_advisory">
+                                                    <input type="hidden" name="action" value="<?php echo $isPublished ? 'unpublish_advisory' : 'publish_advisory'; ?>">
                                                     <input type="hidden" name="advisory_id" value="<?php echo (int) $advisory['id']; ?>">
-                                                    <button class="btn btn-sm btn-outline-success" type="submit"><i class="bi bi-megaphone"></i> Publish</button>
+                                                    <button class="btn btn-sm <?php echo $isPublished ? 'btn-outline-warning' : 'btn-outline-success'; ?>" type="submit" role="switch" aria-checked="<?php echo $isPublished ? 'true' : 'false'; ?>" aria-label="<?php echo e('Publish announcement: ' . (string) $advisory['title']); ?>" title="<?php echo $isPublished ? 'Unpublish' : 'Publish'; ?>"><i class="bi <?php echo $isPublished ? 'bi-toggle-on' : 'bi-toggle-off'; ?>" aria-hidden="true"></i> <?php echo $isPublished ? 'Unpublish' : 'Publish'; ?></button>
                                                 </form>
-                                            <?php endif; ?>
-                                            <?php if (in_array((string) $advisory['current_status'], ['draft', 'published'], true)): ?>
-                                                <form method="post" action="advisory-action.php" class="d-inline">
-                                                    <input type="hidden" name="csrf_token" value="<?php echo e($csrfToken); ?>">
-                                                    <input type="hidden" name="action" value="archive_advisory">
-                                                    <input type="hidden" name="advisory_id" value="<?php echo (int) $advisory['id']; ?>">
-                                                    <button class="btn btn-sm btn-outline-warning" type="submit"><i class="bi bi-archive"></i> Archive</button>
-                                                </form>
-                                            <?php endif; ?>
+                                            <?php render_record_actions('advisory', (int) $advisory['id'], (string) $advisory['title'], false); ?>
                                         </div>
                                     </td>
                                 </tr>
@@ -318,6 +319,5 @@ try {
             });
         });
     </script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>

@@ -295,7 +295,8 @@ function permit_list_applications_for_inspection(PDO $pdo, int $actorUserId): ar
     $stmt = $pdo->query(
         'SELECT a.id, a.transaction_id, a.applicant_name, a.property_address,
                 a.municipality, a.province, a.application_status,
-                a.document_status, a.inspection_status, a.submitted_at,
+                a.document_status, a.inspection_status, a.decision_status,
+                a.donation_status, a.release_status, a.validity_status, a.submitted_at,
                 (SELECT COUNT(*) FROM tbl_permit_inspections i WHERE i.application_id = a.id) AS inspection_event_count
          FROM tbl_permit_applications a
          WHERE a.transaction_id IS NOT NULL AND a.application_status <> \'draft\'
@@ -353,6 +354,9 @@ function permit_inspection_coordinates(array $input): array
         throw new PermitInspectionValidationException('The inspection coordinates are outside valid ranges.');
     }
 
+    if (!geo_point_in_laguna($latitudeValue, $longitudeValue)) {
+        throw new PermitInspectionValidationException('The inspection location must be within Laguna, Philippines.');
+    }
     return [number_format($latitudeValue, 7, '.', ''), number_format($longitudeValue, 7, '.', '')];
 }
 

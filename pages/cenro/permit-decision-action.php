@@ -4,6 +4,7 @@
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/permit_decisions.php';
+require_once __DIR__ . '/../../includes/permit_guidance.php';
 
 require_roles($pdo, ['rps', 'superadmin']);
 
@@ -33,12 +34,16 @@ try {
     if ($applicationId < 1) {
         throw new PermitDecisionValidationException('The permit application is invalid.');
     }
+    $decisionInput = $_POST;
+    if (($_POST['action'] ?? '') === 'decline') {
+        $decisionInput['decision_notes'] = permit_reason_with_remarks('decline', $_POST['decision_reason'] ?? '', $_POST['decision_notes'] ?? '');
+    }
     $result = record_permit_review_action(
         $pdo,
         $applicationId,
         $userId,
         (string) ($_POST['action'] ?? ''),
-        $_POST
+        $decisionInput
     );
     $_SESSION['permit_decision_flash'] = [
         'type' => 'success',

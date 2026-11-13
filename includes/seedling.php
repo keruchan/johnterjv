@@ -20,6 +20,8 @@
 
 require_once __DIR__ . '/audit.php';
 require_once __DIR__ . '/notifications.php';
+require_once __DIR__ . '/geo.php';
+require_once __DIR__ . '/locations.php';
 
 class SeedlingValidationException extends RuntimeException
 {
@@ -32,13 +34,6 @@ class SeedlingValidationException extends RuntimeException
 function new_seedling_submission_key(): string
 {
     return bin2hex(random_bytes(32));
-}
-
-function seedling_max_per_request(): int
-{
-    return defined('CERTREEFY_SEEDLING_MAX_PER_REQUEST')
-        ? (int) CERTREEFY_SEEDLING_MAX_PER_REQUEST
-        : 50;
 }
 
 function seedling_request_statuses(): array
@@ -386,12 +381,12 @@ function seedling_stock_movement_ledger(PDO $pdo, array $filters = [], int $limi
          INNER JOIN tbl_users u ON u.id = m.recorded_by_user_id
          LEFT JOIN tbl_seedling_requests r ON r.id = m.request_id'
         . $whereSql
-        . ' ORDER BY m.id DESC LIMIT :limit';
+        . ' ORDER BY m.id DESC' . ($limit > 0 ? ' LIMIT :limit' : '');
     $stmt = $pdo->prepare($sql);
     foreach ($params as $name => $value) {
         $stmt->bindValue($name, $value, is_int($value) ? PDO::PARAM_INT : PDO::PARAM_STR);
     }
-    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    if ($limit > 0) { $stmt->bindValue(':limit', $limit, PDO::PARAM_INT); }
     $stmt->execute();
 
     return $stmt->fetchAll();
@@ -417,6 +412,10 @@ function seedling_create_species(PDO $pdo, int $actorUserId, array $input): arra
     $commonName = trim((string) ($input['common_name'] ?? ''));
     $scientificName = trim((string) ($input['scientific_name'] ?? ''));
     $notes = trim((string) ($input['notes'] ?? ''));
+    $indigenous = isset($input['indigenous_status']) ? trim((string)$input['indigenous_status']) : null;
+    if ($indigenous !== null && !in_array($indigenous, ['unknown','indigenous','non_indigenous'], true)) {
+        throw new SeedlingValidationException('Select a valid indigenous classification.');
+    }
 
     if ($commonName === '' || strlen($commonName) > 150) {
         throw new SeedlingValidationException('Enter a species common name of up to 150 characters.');
@@ -447,8 +446,8 @@ function seedling_create_species(PDO $pdo, int $actorUserId, array $input): arra
 
         $insert = $pdo->prepare(
             'INSERT INTO tbl_seedling_inventory
-                (common_name, scientific_name, available_quantity, low_stock_threshold, notes, created_by_user_id)
-             VALUES (:common_name, :scientific_name, 0, :threshold, :notes, :actor)'
+                (common_name, scientific_name, available_quantity, low_stock_threshold, notes, created_by_user_id, indigenous_status)
+             VALUES (:common_name, :scientific_name, 0, :threshold, :notes, :actor, :indigenous)'
         );
         try {
             $insert->execute([
@@ -457,6 +456,7 @@ function seedling_create_species(PDO $pdo, int $actorUserId, array $input): arra
                 ':threshold' => $threshold,
                 ':notes' => $notes !== '' ? $notes : null,
                 ':actor' => $actorUserId,
+                ':indigenous' => $indigenous ?? 'unknown',
             ]);
         } catch (PDOException $e) {
             if ((int) $e->getCode() === 23000) {
@@ -613,6 +613,10 @@ function seedling_update_species(PDO $pdo, int $actorUserId, array $input): arra
 
     $scientificName = trim((string) ($input['scientific_name'] ?? ''));
     $notes = trim((string) ($input['notes'] ?? ''));
+    $indigenous = isset($input['indigenous_status']) ? trim((string)$input['indigenous_status']) : null;
+    if ($indigenous !== null && !in_array($indigenous, ['unknown','indigenous','non_indigenous'], true)) {
+        throw new SeedlingValidationException('Select a valid indigenous classification.');
+    }
     $thresholdValue = trim((string) ($input['low_stock_threshold'] ?? ''));
     if (!ctype_digit($thresholdValue)) {
         throw new SeedlingValidationException('The low-stock threshold must be a whole number.');
@@ -630,9 +634,13 @@ function seedling_update_species(PDO $pdo, int $actorUserId, array $input): arra
         if (seedling_ems_actor($pdo, $actorUserId, true) === null) {
             throw new RuntimeException('You are not authorized to manage seedling inventory.');
         }
+        $beforeStmt = $pdo->prepare('SELECT indigenous_status FROM tbl_seedling_inventory WHERE id=? FOR UPDATE');
+        $beforeStmt->execute([$inventoryId]); $before = $beforeStmt->fetch();
+        if (!$before) { throw new SeedlingValidationException('The species record is unavailable.'); }
         $update = $pdo->prepare(
             'UPDATE tbl_seedling_inventory
              SET scientific_name = :scientific_name,
+                 indigenous_status = COALESCE(:indigenous, indigenous_status),
                  low_stock_threshold = :threshold,
                  notes = :notes,
                  is_active = :is_active
@@ -641,6 +649,7 @@ function seedling_update_species(PDO $pdo, int $actorUserId, array $input): arra
         $update->execute([
             ':scientific_name' => $scientificName !== '' ? $scientificName : null,
             ':threshold' => (int) $thresholdValue,
+            ':indigenous' => $indigenous,
             ':notes' => $notes !== '' ? $notes : null,
             ':is_active' => $isActive,
             ':id' => $inventoryId,
@@ -657,7 +666,8 @@ function seedling_update_species(PDO $pdo, int $actorUserId, array $input): arra
             'seedling_inventory',
             $inventoryId,
             'Updated a seedling species record.',
-            ['low_stock_threshold' => (int) $thresholdValue, 'is_active' => $isActive === 1]
+            ['low_stock_threshold' => (int) $thresholdValue, 'is_active' => $isActive === 1,
+                'indigenous_status_before'=>$before['indigenous_status'], 'indigenous_status'=>$indigenous ?? $before['indigenous_status']]
         );
 
         $pdo->commit();
@@ -692,7 +702,24 @@ function seedling_submit_request(PDO $pdo, int $requesterUserId, array $input): 
     if ($location === '' || strlen($location) > 500) {
         throw new SeedlingValidationException('Enter the planting location in up to 500 characters.');
     }
+    $plantingBarangay = trim((string) ($input['planting_barangay'] ?? ''));
+    $plantingMunicipality = trim((string) ($input['planting_municipality'] ?? ''));
+    $siteValue = trim((string) ($input['planting_site_id'] ?? ''));
+    if (($siteValue !== '' && (!ctype_digit($siteValue) || (int) $siteValue < 1))
+        || mb_strlen($plantingBarangay) > 100 || mb_strlen($plantingMunicipality) > 100) {
+        throw new SeedlingValidationException('Enter a valid planting site, barangay, and municipality.');
+    }
+    if (($plantingBarangay === '') !== ($plantingMunicipality === '')) {
+        throw new SeedlingValidationException('Provide both the planting barangay and municipality.');
+    }
 
+    $plantingProvince=trim((string)($input['planting_province']??'Laguna'));
+    if(strcasecmp($plantingProvince,'Laguna')!==0)throw new SeedlingValidationException('Seedling requests must have a planting destination in Laguna.');
+    if($siteValue===''){
+        $locationErrors=laguna_validate_location($plantingMunicipality,$plantingBarangay);
+        if($locationErrors)throw new SeedlingValidationException(implode(' ',$locationErrors));
+        $town=laguna_town($plantingMunicipality);$plantingMunicipality=$town['name'];$plantingBarangay=laguna_barangay($town,$plantingBarangay)['name'];
+    }
     $pickupDate = trim((string) ($input['preferred_pickup_date'] ?? ''));
     if ($pickupDate !== '') {
         $date = DateTimeImmutable::createFromFormat('!Y-m-d', $pickupDate);
@@ -726,8 +753,11 @@ function seedling_submit_request(PDO $pdo, int $requesterUserId, array $input): 
         if (!ctype_digit($rawInventoryId)) {
             throw new SeedlingValidationException('Select a valid seedling species for every row.');
         }
-        if (!ctype_digit($rawQuantity) || (int) $rawQuantity < 1) {
-            throw new SeedlingValidationException('Enter a quantity of at least 1 for every selected species.');
+        $canonicalQuantity = ltrim($rawQuantity, '0');
+        if (!ctype_digit($rawQuantity) || $canonicalQuantity === ''
+            || strlen($canonicalQuantity) > 10
+            || (strlen($canonicalQuantity) === 10 && strcmp($canonicalQuantity, '4294967295') > 0)) {
+            throw new SeedlingValidationException('Enter a valid whole quantity of at least 1 for every selected species.');
         }
         $inventoryId = (int) $rawInventoryId;
         if (isset($items[$inventoryId])) {
@@ -739,12 +769,6 @@ function seedling_submit_request(PDO $pdo, int $requesterUserId, array $input): 
 
     if ($items === []) {
         throw new SeedlingValidationException('Add at least one seedling species to your request.');
-    }
-    $cap = seedling_max_per_request();
-    if ($total > $cap) {
-        throw new SeedlingValidationException(
-            'A single request may not exceed ' . $cap . ' seedlings in total (you requested ' . $total . ').'
-        );
     }
 
     try {
@@ -787,16 +811,31 @@ function seedling_submit_request(PDO $pdo, int $requesterUserId, array $input): 
             $speciesNames[$inventoryId] = (string) $species['common_name'];
         }
 
+        $plantingLat = $plantingLng = null;
+        if ($siteValue !== '') {
+            $siteStmt = $pdo->prepare('SELECT id, province, barangay, municipality, center_lat, center_lng FROM tbl_planting_sites WHERE id = ? AND is_active = 1 FOR UPDATE');
+            $siteStmt->execute([(int) $siteValue]);
+            $site = $siteStmt->fetch();
+            if (!$site) { throw new SeedlingValidationException('Select an available planting site.'); }
+            if(strcasecmp((string)$site['province'],'Laguna')!==0 || laguna_validate_location((string)$site['municipality'],(string)$site['barangay']))throw new SeedlingValidationException('Select a planting site with a current Laguna barangay.');
+            $plantingBarangay = trim((string) ($site['barangay'] ?? ''));
+            $plantingMunicipality = trim((string) ($site['municipality'] ?? ''));
+            if ($site['center_lat'] !== null && $site['center_lng'] !== null
+                && geo_point_in_laguna((float) $site['center_lat'], (float) $site['center_lng'])) {
+                $plantingLat = $site['center_lat']; $plantingLng = $site['center_lng'];
+            }
+        }
         $reference = seedling_reserve_request_reference($pdo);
         $requesterName = trim((string) $requester['fname'] . ' ' . (string) $requester['lname']);
 
         $insert = $pdo->prepare(
             'INSERT INTO tbl_seedling_requests
                 (request_reference, submission_key, requester_user_id, requester_name, requester_contact,
-                 planting_purpose, planting_location, preferred_pickup_date, current_status)
+                 planting_purpose, planting_location, preferred_pickup_date, current_status,
+                 planting_barangay, planting_municipality, planting_site_id, planting_latitude, planting_longitude)
              VALUES
                 (:reference, :key, :requester, :name, :contact,
-                 :purpose, :location, :pickup, \'submitted\')'
+                 :purpose, :location, :pickup, \'submitted\', :barangay, :municipality, :site, :lat, :lng)'
         );
         $insert->execute([
             ':reference' => $reference,
@@ -807,6 +846,11 @@ function seedling_submit_request(PDO $pdo, int $requesterUserId, array $input): 
             ':purpose' => $purpose,
             ':location' => $location,
             ':pickup' => $pickupDate !== '' ? $pickupDate : null,
+            ':barangay' => $plantingBarangay !== '' ? $plantingBarangay : null,
+            ':municipality' => $plantingMunicipality !== '' ? $plantingMunicipality : null,
+            ':site' => $siteValue !== '' ? (int) $siteValue : null,
+            ':lat' => $plantingLat,
+            ':lng' => $plantingLng,
         ]);
         $requestId = (int) $pdo->lastInsertId();
 

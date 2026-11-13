@@ -33,7 +33,8 @@ if ($sessionToken === '' || $submittedToken === '' || !hash_equals($sessionToken
         'type' => 'danger',
         'message' => 'Security validation failed. Please refresh the page and try again.',
     ];
-    header('Location: permit-application.php?id=' . $applicationId . '#documents');
+    $afterUpload = permit_load_application($pdo, $applicationId);
+    header('Location: permit-application.php?id=' . $applicationId . (($afterUpload['application_status'] ?? '') === 'draft' ? '&step=5#documents' : '#documents'));
     exit;
 }
 
@@ -65,5 +66,6 @@ try {
     ];
 }
 
-header('Location: permit-application.php?id=' . $applicationId . '#documents');
+$afterUpload = permit_load_application($pdo, $applicationId);
+header('Location: permit-application.php?id=' . $applicationId . (($afterUpload['application_status'] ?? '') === 'draft' ? '&step=5#documents' : '#documents'));
 exit;

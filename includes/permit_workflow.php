@@ -243,6 +243,117 @@ function permit_status_label(string $status): string
     return ucwords(str_replace('_', ' ', $status));
 }
 
+/** Read-only summary of the current processing stage and its specific status. */
+function permit_stage_status(array $application): array
+{
+    $app = (string) ($application['application_status'] ?? 'draft');
+    $documents = (string) ($application['document_status'] ?? 'pending');
+    $inspection = (string) ($application['inspection_status'] ?? 'pending_assessment');
+    $decision = (string) ($application['decision_status'] ?? 'pending');
+    $donation = (string) ($application['donation_status'] ?? 'not_required');
+    $release = (string) ($application['release_status'] ?? 'not_ready');
+    $validity = (string) ($application['validity_status'] ?? 'not_issued');
+    $stage = 'Submission';
+    $status = permit_status_label($app);
+    $tone = 'primary';
+    $statusClass = 'text-secondary';
+
+    // Terminal and post-approval stages take precedence over old review flags.
+    if ($app === 'completed' || $validity === 'completed') {
+        [$stage, $status, $tone] = ['Cutting completion', 'Completed', 'success'];
+        $statusClass = 'text-success';
+    } elseif ($validity === 'expired') {
+        [$stage, $status, $tone] = ['Permit validity', 'Expired', 'danger'];
+        $statusClass = 'text-danger';
+    } elseif ($app === 'closed' || $validity === 'closed') {
+        [$stage, $status, $tone] = ['Application closure', 'Closed', 'secondary'];
+    } elseif ($app === 'declined' || $decision === 'declined') {
+        [$stage, $status, $tone] = ['RPS decision', 'Declined', 'danger'];
+        $statusClass = 'text-danger';
+    } elseif (in_array($application['completion_status'] ?? '', ['pending_ems','follow_up'], true)) {
+        $stage = 'Final tree verification';
+        $status = $application['completion_status'] === 'follow_up' ? 'Follow-up required' : 'Awaiting EMS verification';
+        $tone = $application['completion_status'] === 'follow_up' ? 'warning' : 'info';
+    } elseif ($app === 'released' || $release === 'released') {
+        [$stage, $status, $tone] = ['Permit release', 'Released', 'success'];
+        $statusClass = 'text-success';
+    } elseif ($app === 'ready_for_release' || in_array($release, ['preparing', 'ready', 'withheld'], true)) {
+        $stage = 'Permit release';
+        $status = match ($release) {
+            'preparing' => 'Preparing',
+            'withheld' => 'Withheld',
+            default => 'Ready for release',
+        };
+        $tone = 'info';
+        if ($release === 'withheld') { $statusClass = 'text-danger'; }
+    } elseif ($app === 'awaiting_final_verification' || $donation === 'ems_verified') {
+        [$stage, $status, $tone] = ['Final verification', 'Pending RPS confirmation', 'info'];
+    } elseif ($decision === 'approved' || in_array($app, ['approved', 'awaiting_donation'], true)) {
+        $stage = 'Seedling donation';
+        $status = match ($donation) {
+            'partially_received' => 'Partially received',
+            'flagged' => 'Flagged for review',
+            'rps_verified' => 'Verified by RPS',
+            'waived' => 'Waived',
+            default => 'Awaiting receipt',
+        };
+        $tone = 'success';
+        if ($donation === 'flagged') { $statusClass = 'text-danger'; }
+    } elseif ($decision === 'returned' || $app === 'awaiting_documents') {
+        [$stage, $status, $tone] = ['Document verification', 'Additional requirements requested', 'warning'];
+    } elseif ($app !== 'draft' && ($app !== 'submitted' || $documents !== 'pending'
+        || $inspection !== 'pending_assessment' || $decision !== 'pending')) {
+        if ($documents !== 'verified') {
+            $stage = 'Document verification';
+            $status = match ($documents) {
+                'online_verified' => 'Originals pending',
+                'originals_verified' => 'Originals verified',
+                'incomplete' => 'Incomplete',
+                'under_review' => 'Under review',
+                'waived' => 'Waived',
+                default => 'Pending review',
+            };
+        } elseif (!in_array($inspection, ['passed', 'not_required'], true)) {
+            $stage = 'Site inspection';
+            $status = permit_status_label($inspection);
+            $tone = 'warning';
+            if ($inspection === 'failed') { $statusClass = 'text-danger'; }
+        } else {
+            $stage = 'RPS decision';
+            $status = $decision === 'under_review' ? 'Under review' : 'Pending decision';
+        }
+    }
+
+    return [
+        'stage' => $stage,
+        'status' => $status,
+        'badge_class' => 'permit-stage-badge permit-stage-' . $tone,
+        'status_class' => 'permit-stage-status' . match ($statusClass) {
+            'text-success' => ' permit-stage-status-success',
+            'text-danger' => ' permit-stage-status-danger',
+            default => '',
+        },
+    ];
+}
+
+/** Summary-card category; terminal/released records remain in Total only. */
+function permit_summary_category(array $application): string
+{
+    $summary = permit_stage_status($application);
+    if (in_array($summary['stage'], ['Submission', 'Document verification', 'RPS decision'], true)
+        && $summary['status'] !== 'Declined') {
+        return 'review';
+    }
+    if ($summary['stage'] === 'Site inspection') {
+        return 'inspection';
+    }
+    if ($summary['stage'] === 'Seedling donation'
+        && !in_array($summary['status'], ['Verified by RPS', 'Waived'], true)) {
+        return 'donation';
+    }
+    return 'all';
+}
+
 /**
  * Simplified public "where is my application" tracker, collapsing the full
  * workflow sub-statuses into 6 delivery-style steps. Returns a list of

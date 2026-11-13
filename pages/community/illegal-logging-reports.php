@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/illegal_logging.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'community');
 
@@ -27,11 +28,16 @@ if (!empty($_SESSION['illegal_logging_submit_flash']) && is_array($_SESSION['ill
 
 try {
     $myReports = illegal_logging_reports_for_reporter($pdo, $userId);
+    $myReports = record_visibility_filter($pdo, $myReports, 'illegal_logging_report');
 } catch (PDOException $e) {
     error_log('[CERTREEFY ILLEGAL LOGGING PAGE ERROR] ' . $e->getMessage());
     http_response_code(500);
     die('Unable to load the illegal-logging report program at this time. Please try again later.');
 }
+$registryRows = registry_date_rows($myReports, 'submitted_at');
+$registryPredicates = registry_report_predicates();
+$registryCounts = registry_counts($registryRows, $registryPredicates);
+$myReports = registry_category_rows($registryRows, $registryPredicates);
 ?>
 <!doctype html>
 <html lang="en">
@@ -46,7 +52,7 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -74,7 +80,8 @@ try {
                 <svg class="ridge-divider" viewBox="0 0 1200 20" preserveAspectRatio="none" aria-hidden="true">
                     <path d="M0 14 Q150 2 300 12 T600 10 T900 13 T1200 8" fill="none" stroke="#a9c4ac" stroke-width="2"/>
                 </svg>
-            </section>
+</section>
+            <?php render_registry_date_filter('Report submission dates'); render_registry_cards($registryCounts, ['all'=>'All reports','review'=>'For review','field'=>'Field verification','resolved'=>'Resolved reports']); ?>
 
             <?php if ($flash !== null): ?>
                 <div class="alert alert-<?php echo e((string) $flash['type']); ?> alert-dismissible fade show" role="alert">
@@ -130,6 +137,7 @@ try {
                     <h2 id="myReportsHeading">My Reports</h2>
                     <span class="section-note tabular"><?php echo count($myReports); ?> report<?php echo count($myReports) === 1 ? '' : 's'; ?></span>
                 </div>
+                <?php render_record_visibility_tabs('illegal_logging_report'); ?>
                 <div class="table-responsive">
                     <table class="table align-middle mb-0" data-table-tools data-tt-search-placeholder="Search reference or location">
                         <thead>
@@ -139,11 +147,12 @@ try {
                                 <th scope="col" data-tt-filter="Status">Status</th>
                                 <th scope="col" data-tt-filter="Outcome">Outcome</th>
                                 <th scope="col">Submitted</th>
+                                <th scope="col" class="text-end">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php if ($myReports === []): ?>
-                                <tr><td colspan="5" class="text-center text-secondary py-5">You have not submitted any illegal-logging reports yet.</td></tr>
+                                <tr><td colspan="6" class="text-center text-secondary py-5">No reports in this view.</td></tr>
                             <?php endif; ?>
                             <?php foreach ($myReports as $myReport): ?>
                                 <?php $myStatus = (string) $myReport['current_status']; ?>
@@ -159,6 +168,7 @@ try {
                                         <?php endif; ?>
                                     </td>
                                     <td class="small text-nowrap"><?php echo e(date('M j, Y', strtotime((string) $myReport['submitted_at']))); ?></td>
+                                    <td class="text-end" data-record-actions><?php render_record_actions('illegal_logging_report', (int) $myReport['id'], (string) $myReport['report_reference']); ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -170,10 +180,9 @@ try {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="../../js/geo-map.js"></script>
+    <?php geo_render_map_script('../../'); ?>
     <script>
         CertreefyGeo.picker('incidentMap', { latInput: 'latitude', lngInput: 'longitude' });
     </script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>

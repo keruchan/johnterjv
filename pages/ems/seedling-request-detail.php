@@ -4,7 +4,7 @@
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
-require_once __DIR__ . '/../../includes/seedling.php';
+require_once __DIR__ . '/../../includes/seedling_locations.php';
 require_once __DIR__ . '/../../includes/view.php';
 
 require_role($pdo, 'ems');
@@ -59,7 +59,8 @@ $status = (string) $request['current_status'];
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
+<link href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -109,6 +110,19 @@ $status = (string) $request['current_status'];
                 </div>
             </section>
 
+            <section class="docket-panel mb-4" id="planting-destination"><div class="section-heading"><h2>Planting Destination</h2></div>
+                <p class="small text-secondary">Correct the destination used for barangay distribution totals. The stock quantities and release dates remain recorded separately.</p>
+                <?php if(!empty($request['planting_location_source'])):?><p class="small text-break"><strong>Recorded reason / source:</strong> <?php echo e($request['planting_location_source']); ?></p><?php endif;?>
+                <form method="post" action="seedling-request-destination-action.php" class="row g-3">
+                    <input type="hidden" name="request_id" value="<?php echo $requestId; ?>"><input type="hidden" name="csrf_token" value="<?php echo e($csrfToken); ?>">
+                    <div class="col-12"><?php render_laguna_location_fields(['municipality'=>$request['planting_municipality']??'','barangay'=>$request['planting_barangay']??''],['province'=>'province','municipality'=>'municipality','barangay'=>'barangay']); ?></div>
+                    <div class="col-md-6"><label class="form-label" for="destinationLat">Latitude</label><input class="form-control" type="number" step="0.0000001" id="destinationLat" name="latitude" value="<?php echo e((string)($request['planting_latitude']??'')); ?>" required></div>
+                    <div class="col-md-6"><label class="form-label" for="destinationLng">Longitude</label><input class="form-control" type="number" step="0.0000001" id="destinationLng" name="longitude" value="<?php echo e((string)($request['planting_longitude']??'')); ?>" required></div>
+                    <div class="col-12"><div class="geo-map" id="destinationPicker" data-seedling-picker data-lat-input="destinationLat" data-lng-input="destinationLng" aria-label="Pin planting destination"></div></div>
+                    <div class="col-12"><label class="form-label" for="destinationReason">Reason / source of corrected information</label><textarea class="form-control" id="destinationReason" name="reason" maxlength="1000" required></textarea></div>
+                    <div class="col-12"><button type="submit" class="btn btn-certreefy">Update destination</button></div>
+                </form>
+            </section>
             <section class="docket-panel mb-4" aria-labelledby="requestItemsHeading">
                 <div class="section-heading"><h2 id="requestItemsHeading">Requested Species</h2></div>
                 <div class="table-responsive">
@@ -222,5 +236,6 @@ $status = (string) $request['current_status'];
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><?php geo_render_map_script('../../');render_location_script(); ?><script src="../../js/seedling-locations.js?v=<?php echo e(certreefy_asset_version('js/seedling-locations.js')); ?>"></script>
 </body>
 </html>

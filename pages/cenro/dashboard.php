@@ -19,6 +19,11 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/illegal_logging.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/permit_decisions.php';
+require_once __DIR__ . '/../../includes/permit_documents.php';
+require_once __DIR__ . '/../../includes/permit_inspections.php';
+require_once __DIR__ . '/../../includes/user_management.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_roles($pdo, ['superadmin', 'rps']);
 
@@ -60,6 +65,23 @@ $canProcessLoggingReports = $currentRole === 'rps'
 
 // Today's date, formatted for the ledger-style header (display only).
 $todayLabel = date('l, F j, Y');
+$pendingPermits = 0; $approvedPermits = 0; $pendingAccounts = 0;
+try {
+    if ($canReviewPermitDocuments) {
+        $dashboardPermits = permit_decision_actor($pdo, $userId) !== null
+            ? permit_list_applications_for_review($pdo, $userId, 'all')['applications']
+            : (permit_original_verification_actor($pdo, $userId) !== null ? permit_list_applications_for_rps($pdo, $userId) : permit_list_applications_for_inspection($pdo, $userId));
+        $dashboardPermits = registry_date_rows(record_visibility_filter($pdo, $dashboardPermits, 'permit_application'), 'submitted_at');
+        $pendingPermits = count(array_filter($dashboardPermits, static fn ($r) => !in_array($r['application_status'], ['draft','completed','declined','closed','released'], true) && $r['decision_status'] !== 'approved'));
+        $approvedPermits = count(array_filter($dashboardPermits, static fn ($r) => $r['decision_status'] === 'approved'));
+    }
+    if ($canProcessLoggingReports) {
+        $dashboardReports = registry_date_rows(record_visibility_filter($pdo, illegal_logging_reports_for_processors($pdo), 'illegal_logging_report'), 'submitted_at');
+        $pendingIncidentReports = count(array_filter($dashboardReports, registry_report_predicates()['active']));
+    }
+    if ($currentRole === 'superadmin') { $pendingAccounts = user_management_status_counts($pdo, $_GET)['pending']; }
+} catch (PDOException $e) { error_log('[CERTREEFY DASHBOARD FILTER] ' . $e->getMessage()); }
+
 ?>
 <!doctype html>
 <html lang="en">
@@ -76,7 +98,7 @@ $todayLabel = date('l, F j, Y');
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -119,46 +141,71 @@ $todayLabel = date('l, F j, Y');
             </section>
 
             <!-- Metrics: ledger entry cards -->
+            <?php render_registry_date_filter('Submission and account registration dates'); ?>
             <section class="row g-3 mb-5" aria-label="CENRO dashboard metrics">
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card stagger-1">
+                    <?php if ($canReviewPermitDocuments): ?><a class="ledger-card summary-card stagger-1" <?php echo registry_card_attributes('pending', [], 'permit-applications.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-hourglass-split"></i></span>
                             <span class="ledger-tag">Queue</span>
                         </div>
-                        <div class="ledger-value tabular">0</div>
+                        <div class="ledger-value tabular"><?php echo $pendingPermits; ?></div>
                         <div class="ledger-caption">Pending permit requests</div>
-                    </div>
+                        </a><?php else: ?><div class="ledger-card stagger-1">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <span class="ledger-icon"><i class="bi bi-hourglass-split"></i></span>
+                            <span class="ledger-tag">Queue</span>
+                        </div>
+                        <div class="ledger-value tabular"><?php echo $pendingPermits; ?></div>
+                        <div class="ledger-caption">Pending permit requests</div></div><?php endif; ?>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-teal stagger-2">
+                    <?php if ($canReviewPermitDocuments): ?><a class="ledger-card summary-card accent-teal stagger-2" <?php echo registry_card_attributes('approved', [], 'permit-applications.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-file-earmark-text"></i></span>
                             <span class="ledger-tag">Records</span>
                         </div>
-                        <div class="ledger-value tabular">0</div>
+                        <div class="ledger-value tabular"><?php echo $approvedPermits; ?></div>
                         <div class="ledger-caption">Approved permits</div>
-                    </div>
+                        </a><?php else: ?><div class="ledger-card accent-teal stagger-2">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <span class="ledger-icon"><i class="bi bi-file-earmark-text"></i></span>
+                            <span class="ledger-tag">Records</span>
+                        </div>
+                        <div class="ledger-value tabular"><?php echo $approvedPermits; ?></div>
+                        <div class="ledger-caption">Approved permits</div></div><?php endif; ?>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-rust stagger-3">
+                    <?php if ($canProcessLoggingReports): ?><a class="ledger-card summary-card accent-rust stagger-3" <?php echo registry_card_attributes('active', [], 'illegal-logging-reports.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-exclamation-triangle"></i></span>
                             <span class="ledger-tag">Reports</span>
                         </div>
                         <div class="ledger-value tabular"><?php echo (int) $pendingIncidentReports; ?></div>
                         <div class="ledger-caption">Illegal logging reports</div>
-                    </div>
+                        </a><?php else: ?><div class="ledger-card accent-rust stagger-3">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <span class="ledger-icon"><i class="bi bi-exclamation-triangle"></i></span>
+                            <span class="ledger-tag">Reports</span>
+                        </div>
+                        <div class="ledger-value tabular"><?php echo (int) $pendingIncidentReports; ?></div>
+                        <div class="ledger-caption">Illegal logging reports</div></div><?php endif; ?>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-amber stagger-4">
+                    <?php if ($currentRole === 'superadmin'): ?><a class="ledger-card summary-card accent-amber stagger-4" <?php echo registry_card_attributes('all', ['status'=>'pending','summary'=>null], 'user-management.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-person-check"></i></span>
                             <span class="ledger-tag">Users</span>
                         </div>
-                        <div class="ledger-value tabular">0</div>
+                        <div class="ledger-value tabular"><?php echo $pendingAccounts; ?></div>
                         <div class="ledger-caption">Accounts awaiting action</div>
-                    </div>
+                        </a><?php else: ?><div class="ledger-card accent-amber stagger-4">
+                        <div class="d-flex justify-content-between align-items-start">
+                            <span class="ledger-icon"><i class="bi bi-person-check"></i></span>
+                            <span class="ledger-tag">Users</span>
+                        </div>
+                        <div class="ledger-value tabular"><?php echo $pendingAccounts; ?></div>
+                        <div class="ledger-caption">Accounts awaiting action</div></div><?php endif; ?>
                 </div>
             </section>
 

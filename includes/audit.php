@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/registry_filters.php';
 /**
  * Reusable audit trail writer for authentication and domain workflows.
  */
@@ -15,6 +16,7 @@ function audit_event_categories(): array
         'illegal_logging',
         'area_management',
         'advisory',
+        'record_visibility',
     ];
 }
 
@@ -121,6 +123,7 @@ function audit_trail_category_labels(): array
         'illegal_logging' => 'Illegal Logging',
         'area_management' => 'Area Management',
         'advisory' => 'Advisory',
+        'record_visibility' => 'Record actions',
     ];
 }
 
@@ -147,14 +150,14 @@ function audit_trail_normalize_filters(array $input): array
     $page = filter_var($input['audit_page'] ?? 1, FILTER_VALIDATE_INT, [
         'options' => ['min_range' => 1],
     ]);
-    $dateFrom = trim((string) ($input['audit_date_from'] ?? ''));
-    $dateTo = trim((string) ($input['audit_date_to'] ?? ''));
+    $dateFrom = trim((string) ($input['date_from'] ?? $input['audit_date_from'] ?? ''));
+    $dateTo = trim((string) ($input['date_to'] ?? $input['audit_date_to'] ?? ''));
 
     return [
         'q' => substr(trim((string) ($input['audit_q'] ?? '')), 0, 100),
         'category' => array_key_exists($category, $categories) ? $category : '',
-        'date_from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom) ? $dateFrom : '',
-        'date_to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo) ? $dateTo : '',
+        'date_from' => $dateFrom,
+        'date_to' => $dateTo,
         'page' => $page === false ? 1 : (int) $page,
     ];
 }
@@ -193,14 +196,7 @@ function audit_trail_list(PDO $pdo, array $filters, int $perPage = 20): array
         $where[] = 'a.category = :category';
         $params[':category'] = $filters['category'];
     }
-    if ($filters['date_from'] !== '') {
-        $where[] = 'a.created_at >= :date_from';
-        $params[':date_from'] = $filters['date_from'] . ' 00:00:00';
-    }
-    if ($filters['date_to'] !== '') {
-        $where[] = 'a.created_at <= :date_to';
-        $params[':date_to'] = $filters['date_to'] . ' 23:59:59';
-    }
+    registry_sql_dates($where, $params, 'a.created_at', $filters);
 
     $whereSql = $where === [] ? '' : ' WHERE ' . implode(' AND ', $where);
     $countStmt = $pdo->prepare(

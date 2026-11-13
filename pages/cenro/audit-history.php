@@ -8,6 +8,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/audit.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'superadmin');
 
@@ -21,6 +22,8 @@ $loginFilters = login_attempts_normalize_filters($_GET);
 try {
     $auditList = audit_trail_list($pdo, $auditFilters);
     $loginList = login_attempts_list($pdo, $loginFilters);
+    $successfulLogins = login_attempts_list($pdo, array_replace($loginFilters, ['status'=>'success']))['total'];
+    $failedLogins = login_attempts_list($pdo, array_replace($loginFilters, ['status'=>'failed']))['total'];
 } catch (PDOException $e) {
     error_log('[CERTREEFY AUDIT HISTORY LOAD ERROR] ' . $e->getMessage());
     http_response_code(500);
@@ -43,6 +46,8 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
     }
     $combined = array_merge($parsedAudit, $parsedLogin);
 
+    $combined['date_from'] = $auditFilters['date_from'];
+    $combined['date_to'] = $auditFilters['date_to'];
     return $combined === [] ? 'audit-history.php' : 'audit-history.php?' . http_build_query($combined);
 }
 ?>
@@ -58,7 +63,7 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -92,9 +97,15 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
                     <path d="M0 14 Q150 2 300 12 T600 10 T900 13 T1200 8" fill="none" stroke="#a9c4ac" stroke-width="2"/>
                 </svg>
             </section>
+            <?php render_registry_date_filter('Activity and login dates'); ?>
+            <section class="row g-3 mb-4" aria-label="Audit summary">
+                <div class="col-sm-4"><a class="ledger-card summary-card" href="#auditTrailHeading"><div class="ledger-value"><?php echo (int) $auditList['total']; ?></div><div class="ledger-caption">Activity events</div></a></div>
+                <div class="col-sm-4"><a class="ledger-card summary-card" href="<?php echo e(registry_url(['login_status'=>'success'])); ?>#loginAttemptsHeading"><div class="ledger-value"><?php echo (int) $successfulLogins; ?></div><div class="ledger-caption">Successful logins</div></a></div>
+                <div class="col-sm-4"><a class="ledger-card summary-card" href="<?php echo e(registry_url(['login_status'=>'failed'])); ?>#loginAttemptsHeading"><div class="ledger-value"><?php echo (int) $failedLogins; ?></div><div class="ledger-caption">Failed logins</div></a></div>
+            </section>
 
             <section class="docket-panel mb-4" aria-label="Audit trail filters">
-                <form method="get" action="audit-history.php" class="row g-3 align-items-end">
+                <form method="get" action="audit-history.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <input type="hidden" name="login_q" value="<?php echo e($loginFilters['q']); ?>">
                     <input type="hidden" name="login_status" value="<?php echo e($loginFilters['status']); ?>">
                     <input type="hidden" name="login_date_from" value="<?php echo e($loginFilters['date_from']); ?>">
@@ -115,14 +126,8 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-sm-6 col-lg-2">
-                        <label for="auditDateFrom" class="form-label">From</label>
-                        <input type="date" class="form-control" id="auditDateFrom" name="audit_date_from" value="<?php echo e($auditFilters['date_from']); ?>">
-                    </div>
-                    <div class="col-sm-6 col-lg-2">
-                        <label for="auditDateTo" class="form-label">To</label>
-                        <input type="date" class="form-control" id="auditDateTo" name="audit_date_to" value="<?php echo e($auditFilters['date_to']); ?>">
-                    </div>
+
+
                     <div class="col-lg-2 d-flex gap-2">
                         <button type="submit" class="btn btn-certreefy flex-grow-1"><i class="bi bi-funnel me-1"></i>Filter</button>
                         <a class="btn btn-outline-secondary" href="<?php echo e(audit_history_link(audit_trail_normalize_filters([]), $loginFilters)); ?>" title="Clear audit filters" aria-label="Clear audit filters"><i class="bi bi-x-lg"></i></a>
@@ -187,7 +192,7 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
             </section>
 
             <section class="docket-panel mb-4" aria-label="Login attempt filters">
-                <form method="get" action="audit-history.php" class="row g-3 align-items-end">
+                <form method="get" action="audit-history.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <input type="hidden" name="audit_q" value="<?php echo e($auditFilters['q']); ?>">
                     <input type="hidden" name="audit_category" value="<?php echo e($auditFilters['category']); ?>">
                     <input type="hidden" name="audit_date_from" value="<?php echo e($auditFilters['date_from']); ?>">
@@ -207,14 +212,8 @@ function audit_history_link(array $auditFilters, array $loginFilters, array $aud
                             <option value="failed" <?php echo $loginFilters['status'] === 'failed' ? 'selected' : ''; ?>>Failed</option>
                         </select>
                     </div>
-                    <div class="col-sm-6 col-lg-2">
-                        <label for="loginDateFrom" class="form-label">From</label>
-                        <input type="date" class="form-control" id="loginDateFrom" name="login_date_from" value="<?php echo e($loginFilters['date_from']); ?>">
-                    </div>
-                    <div class="col-sm-6 col-lg-2">
-                        <label for="loginDateTo" class="form-label">To</label>
-                        <input type="date" class="form-control" id="loginDateTo" name="login_date_to" value="<?php echo e($loginFilters['date_to']); ?>">
-                    </div>
+
+
                     <div class="col-lg-2 d-flex gap-2">
                         <button type="submit" class="btn btn-certreefy flex-grow-1"><i class="bi bi-funnel me-1"></i>Filter</button>
                         <a class="btn btn-outline-secondary" href="<?php echo e(audit_history_link($auditFilters, login_attempts_normalize_filters([]))); ?>" title="Clear login-attempt filters" aria-label="Clear login-attempt filters"><i class="bi bi-x-lg"></i></a>
