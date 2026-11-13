@@ -46,6 +46,78 @@
             .replace(/'/g, '&#039;');
     }
 
+    // Same point-in-polygon rule as includes/geo.php; supports holes and islands.
+    function ringContainsPoint(ring, lat, lng) {
+        var inside = false;
+        for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+            var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+            var cross = (lng - xi) * (yj - yi) - (lat - yi) * (xj - xi);
+            if (Math.abs(cross) < 1e-12 && lng >= Math.min(xi, xj) - 1e-10
+                && lng <= Math.max(xi, xj) + 1e-10 && lat >= Math.min(yi, yj) - 1e-10
+                && lat <= Math.max(yi, yj) + 1e-10) {
+                return true;
+            }
+            if ((yi > lat) !== (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi) {
+                inside = !inside;
+            }
+        }
+        return inside;
+    }
+
+    function boundaryContainsPoint(boundary, lat, lng) {
+        if (!isFinite(lat) || !isFinite(lng)) { return false; }
+        var geometry = boundary.geometry || boundary;
+        var polygons = geometry.type === 'Polygon' ? [geometry.coordinates] : geometry.coordinates;
+        return polygons.some(function (rings) {
+            return ringContainsPoint(rings[0], lat, lng) && !rings.slice(1).some(function (hole) {
+                return ringContainsPoint(hole, lat, lng);
+            });
+        });
+    }
+
+    function applyBoundary(map, boundary) {
+        if (!boundary) { return; }
+        var outline = L.geoJSON(boundary, {
+            interactive: false,
+            style: { color: '#2d6a4f', weight: 2, fillOpacity: 0.04 }
+        }).addTo(map);
+        var bounds = outline.getBounds().pad(0.04);
+        // Fractional zoom avoids an extra whole zoom level of surrounding area.
+        map.options.zoomSnap = 0.1;
+        map.options.maxBoundsViscosity = 1;
+        function showProvince() {
+            map.fitBounds(bounds, { padding: [8, 8], animate: false });
+        }
+        function updateMinimumZoom() {
+            var wasAtOverview = map.getZoom() <= map.getMinZoom();
+            // Clear the old minimum so a narrower viewport can fit Laguna too.
+            map.setMinZoom(0);
+            map.setMinZoom(map.getBoundsZoom(bounds, false, L.point(16, 16)));
+            map.setMaxBounds(bounds);
+            if (wasAtOverview) { showProvince(); }
+        }
+        updateMinimumZoom();
+        showProvince();
+        map.on('resize', updateMinimumZoom);
+        var reset = L.control({ position: 'topleft' });
+        reset.onAdd = function () {
+            var div = L.DomUtil.create('div', 'leaflet-bar');
+            var link = L.DomUtil.create('a', '', div);
+            link.href = '#';
+            link.innerHTML = '&#8962;';
+            link.title = 'Show all of Laguna';
+            link.setAttribute('aria-label', 'Show all of Laguna');
+            L.DomEvent.on(link, 'click', function (event) {
+                L.DomEvent.stop(event);
+                showProvince();
+            });
+            return div;
+        };
+        reset.addTo(map);
+        map.certreefyBoundary = boundary;
+        map.attributionControl.addAttribution('Laguna boundary: <a href="https://www.geoboundaries.org/">geoBoundaries</a> (NAMRIA/PSA/OCHA), CC BY 3.0 IGO');
+    }
+
     /** Creates a Leaflet map with a Street/Satellite layer switcher. */
     function baseMap(elementOrId, options) {
         options = options || {};
@@ -67,6 +139,7 @@
             scrollWheelZoom: options.scrollWheelZoom !== undefined ? options.scrollWheelZoom : true
         });
         L.control.layers({ 'Street': street, 'Satellite': satellite }, null, { position: 'topright' }).addTo(map);
+        applyBoundary(map, options.boundary || readJson('lagunaMapBoundary', null));
         return map;
     }
 
@@ -122,6 +195,7 @@
      */
     function picker(elementOrId, opts) {
         opts = opts || {};
+        opts.boundary = opts.boundary || readJson('lagunaMapBoundary', null);
         var latInput = typeof opts.latInput === 'string' ? document.getElementById(opts.latInput) : opts.latInput;
         var lngInput = typeof opts.lngInput === 'string' ? document.getElementById(opts.lngInput) : opts.lngInput;
         if (!latInput || !lngInput) {
@@ -134,17 +208,44 @@
 
         var map = baseMap(elementOrId, {
             center: hasInitial ? [initialLat, initialLng] : opts.center,
-            zoom: hasInitial ? 16 : opts.zoom
+            zoom: hasInitial ? 16 : opts.zoom,
+            boundary: opts.boundary
         });
         zonesOverlay(map, opts.zones);
 
         var marker = null;
+        var lastValidPosition = null;
+        var feedback = null;
+        if (opts.boundary && !opts.readOnly) {
+            feedback = document.createElement('p');
+            feedback.className = 'small text-danger mt-2 mb-0';
+            feedback.setAttribute('role', 'status');
+            feedback.hidden = true;
+            map.getContainer().insertAdjacentElement('afterend', feedback);
+        }
+        function isAllowed(lat, lng) {
+            var allowed = !opts.boundary || boundaryContainsPoint(opts.boundary, lat, lng);
+            if (feedback) {
+                feedback.textContent = allowed ? '' : 'Select a location within Laguna, Philippines.';
+                feedback.hidden = allowed;
+            }
+            return allowed;
+        }
+        function selectLocation(lat, lng, pan) {
+            if (!isAllowed(lat, lng)) {
+                if (marker && lastValidPosition) { marker.setLatLng(lastValidPosition); }
+                return;
+            }
+            lastValidPosition = [lat, lng];
+            setMarker(lat, lng, pan);
+            writeInputs(lat, lng);
+        }
         function setMarker(lat, lng, pan) {
             if (marker === null) {
                 marker = L.marker([lat, lng], { draggable: !opts.readOnly }).addTo(map);
                 marker.on('dragend', function () {
                     var pos = marker.getLatLng();
-                    writeInputs(pos.lat, pos.lng);
+                    selectLocation(pos.lat, pos.lng, false);
                 });
             } else {
                 marker.setLatLng([lat, lng]);
@@ -159,26 +260,50 @@
             latInput.dispatchEvent(new Event('change', { bubbles: true }));
         }
         function syncFromInputs() {
+            latInput.setCustomValidity('');
+            lngInput.setCustomValidity('');
             var lat = parseFloat(latInput.value);
             var lng = parseFloat(lngInput.value);
+            if ((latInput.value === '') !== (lngInput.value === '')) {
+                var missing = latInput.value === '' ? latInput : lngInput;
+                missing.setCustomValidity('Provide both latitude and longitude, or leave both blank.');
+            }
             if (isFinite(lat) && isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+                if (!isAllowed(lat, lng)) {
+                    latInput.setCustomValidity('Select a location within Laguna, Philippines.');
+                    lngInput.setCustomValidity('Select a location within Laguna, Philippines.');
+                    if (marker !== null) { map.removeLayer(marker); marker = null; }
+                    return;
+                }
+                lastValidPosition = [lat, lng];
                 setMarker(lat, lng, true);
             } else if (marker !== null) {
                 map.removeLayer(marker);
                 marker = null;
             }
+            if (feedback && latInput.value === '' && lngInput.value === '') {
+                feedback.hidden = true;
+                feedback.textContent = '';
+            }
         }
 
         if (hasInitial) {
             setMarker(initialLat, initialLng, false);
+            if (!opts.boundary || boundaryContainsPoint(opts.boundary, initialLat, initialLng)) {
+                lastValidPosition = [initialLat, initialLng];
+            } else {
+                isAllowed(initialLat, initialLng);
+            }
         }
         if (!opts.readOnly) {
             map.on('click', function (event) {
-                setMarker(event.latlng.lat, event.latlng.lng, false);
-                writeInputs(event.latlng.lat, event.latlng.lng);
+                selectLocation(event.latlng.lat, event.latlng.lng, false);
             });
             latInput.addEventListener('change', syncFromInputs);
             lngInput.addEventListener('change', syncFromInputs);
+            latInput.addEventListener('input', syncFromInputs);
+            lngInput.addEventListener('input', syncFromInputs);
+            syncFromInputs();
 
             // "Use my location" control for phone-based field capture.
             var locate = L.control({ position: 'topleft' });
@@ -191,14 +316,13 @@
                 link.setAttribute('aria-label', 'Use my current location');
                 L.DomEvent.on(link, 'click', function (event) {
                     L.DomEvent.stop(event);
-                    map.locate({ setView: true, maxZoom: 17 });
+                    map.locate({ setView: !opts.boundary, maxZoom: 17 });
                 });
                 return div;
             };
             locate.addTo(map);
             map.on('locationfound', function (event) {
-                setMarker(event.latlng.lat, event.latlng.lng, true);
-                writeInputs(event.latlng.lat, event.latlng.lng);
+                selectLocation(event.latlng.lat, event.latlng.lng, true);
             });
         }
         return map;
@@ -225,8 +349,10 @@
         });
         if (markerGroup.getLayers().length > 0) {
             markerGroup.addTo(map);
-            map.fitBounds(markerGroup.getBounds().pad(0.35), { maxZoom: 16 });
-        } else if (zoneGroup !== null) {
+            if (!map.certreefyBoundary) {
+                map.fitBounds(markerGroup.getBounds().pad(0.35), { maxZoom: 16 });
+            }
+        } else if (zoneGroup !== null && !map.certreefyBoundary) {
             map.fitBounds(zoneGroup.getBounds().pad(0.2));
         }
         return map;
@@ -419,6 +545,7 @@
 
     window.CertreefyGeo = {
         baseMap: baseMap,
+        escapeHtml: escapeHtml,
         picker: picker,
         display: display,
         zoneEditor: zoneEditor,
@@ -427,6 +554,7 @@
         readJson: readJson,
         reverseGeocode: reverseGeocode,
         classificationColor: classificationColor,
+        boundaryContainsPoint: boundaryContainsPoint,
         DEFAULT_CENTER: DEFAULT_CENTER
     };
 }(window));

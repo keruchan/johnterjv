@@ -9,7 +9,7 @@
  * users), and can be archived to retire it without deleting the record.
  *
  * Lifecycle:
- *   draft -> published -> archived
+ *   draft <-> published; archived -> published (republish legacy posts)
  *   draft -> archived (discard without ever publishing)
  */
 
@@ -52,8 +52,8 @@ function advisory_transition_is_allowed(string $from, string $to): bool
 {
     $allowed = [
         'draft' => ['published', 'archived'],
-        'published' => ['archived'],
-        'archived' => [],
+        'published' => ['draft', 'archived'],
+        'archived' => ['published'],
     ];
 
     return in_array($to, $allowed[$from] ?? [], true);
@@ -461,20 +461,24 @@ function advisory_update(PDO $pdo, int $actorUserId, int $advisoryId, array $inp
     }
 }
 
-/** Publishes or archives an advisory. Publishing notifies every active Community user. */
+/** Publishes, unpublishes, or archives an advisory. Publishing notifies active Community users. */
 function advisory_transition(PDO $pdo, int $actorUserId, int $advisoryId, string $action, array $input = []): array
 {
     if ($pdo->inTransaction()) {
         throw new LogicException('Advisory transition must own its database transaction.');
     }
-    if (!in_array($action, ['publish', 'archive'], true)) {
+    if (!in_array($action, ['publish', 'unpublish', 'archive'], true)) {
         throw new AdvisoryValidationException('Unsupported advisory action.');
     }
     $remarks = trim((string) ($input['remarks'] ?? ''));
     if (strlen($remarks) > 500) {
         throw new AdvisoryValidationException('Remarks must not exceed 500 characters.');
     }
-    $newStatus = $action === 'publish' ? 'published' : 'archived';
+    $newStatus = match ($action) {
+        'publish' => 'published',
+        'unpublish' => 'draft',
+        default => 'archived',
+    };
 
     try {
         $pdo->beginTransaction();
@@ -497,9 +501,11 @@ function advisory_transition(PDO $pdo, int $actorUserId, int $advisoryId, string
             );
         }
 
-        $extraColumns = $action === 'publish'
-            ? ['published_at = NOW()']
-            : ['archived_at = NOW()'];
+        $extraColumns = match ($action) {
+            'publish' => ['published_at = NOW()', 'archived_at = NULL'],
+            'unpublish' => ['published_at = NULL'],
+            default => ['archived_at = NOW()'],
+        };
         $update = $pdo->prepare(
             'UPDATE tbl_advisories SET current_status = :new_status, updated_by_user_id = :actor, '
             . implode(', ', $extraColumns)
@@ -521,16 +527,16 @@ function advisory_transition(PDO $pdo, int $actorUserId, int $advisoryId, string
             $actorUserId,
             $currentStatus,
             $newStatus,
-            $remarks !== '' ? $remarks : ('Advisory ' . advisory_status_label($newStatus) . '.')
+            $remarks !== '' ? $remarks : ($action === 'unpublish' ? 'Announcement unpublished.' : ('Advisory ' . advisory_status_label($newStatus) . '.'))
         );
         record_audit_event(
             $pdo,
             $actorUserId,
             'advisory',
-            'advisory_' . $newStatus,
+            $action === 'unpublish' ? 'advisory_unpublished' : 'advisory_' . $newStatus,
             'advisory',
             $advisoryId,
-            'Advisory moved to ' . advisory_status_label($newStatus) . '.',
+            $action === 'unpublish' ? 'Announcement unpublished.' : 'Advisory moved to ' . advisory_status_label($newStatus) . '.',
             ['previous_status' => $currentStatus, 'title' => (string) $advisory['title']]
         );
 

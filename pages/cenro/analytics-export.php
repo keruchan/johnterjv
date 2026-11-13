@@ -4,6 +4,7 @@
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/analytics.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_roles($pdo, ['rps', 'superadmin']);
 
@@ -13,7 +14,8 @@ if (analytics_actor($pdo, $userId) === null) {
     exit('You are not authorized to export analytics.');
 }
 
-$range = analytics_normalize_range($_GET);
+$range = registry_range();
+if ($range['error'] !== '') { http_response_code(422); exit($range['error']); }
 
 try {
     $rows = analytics_csv_rows($pdo, $range);

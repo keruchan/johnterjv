@@ -7,6 +7,9 @@ require_once __DIR__ . '/audit.php';
 require_once __DIR__ . '/notifications.php';
 require_once __DIR__ . '/permit_workflow.php';
 require_once __DIR__ . '/permit_matrix.php';
+require_once __DIR__ . '/geo.php';
+require_once __DIR__ . '/intake_fields.php';
+require_once __DIR__ . '/locations.php';
 
 class PermitValidationException extends InvalidArgumentException
 {
@@ -34,7 +37,7 @@ function new_permit_submission_key(): string
  * applicant's account classification, never from the request, so the permit
  * type and its checklist cannot be switched by tampering with the form.
  */
-function permit_normalize_application_data(array $input, ?string $permitCategory = null): array
+function permit_normalize_application_data(array $input, ?string $permitCategory = null, bool $forIntake = false): array
 {
     $fields = [
         'applicant_type',
@@ -72,6 +75,13 @@ function permit_normalize_application_data(array $input, ?string $permitCategory
     if ($data['property_relationship'] !== 'authorized_representative') {
         $data['authorization_details'] = null;
     }
+    $data['intake_version'] = $forIntake ? 2 : (int) ($input['intake_version'] ?? 1);
+    if ($forIntake) {
+        $data['property_classification'] = null;
+        $data['lot_number'] = null;
+        $data['cutting_purpose'] = null;
+        $data['tree_origin'] = null;
+    }
     $data['declaration_confirmed'] = in_array(
         strtolower(trim((string) ($input['declaration_confirmed'] ?? ''))),
         ['1', 'true', 'yes', 'on'],
@@ -94,6 +104,10 @@ function permit_normalize_application_data(array $input, ?string $permitCategory
         : filter_var($data['area_hectares'], FILTER_VALIDATE_FLOAT);
     $data['area_hectares'] = ($area === false || $area === null) ? null : $area;
 
+    if ($forIntake && array_key_exists('area_value', $input)) {
+        try { $data['area_hectares']=intake_area_to_hectares($input['area_value'], $input['area_unit']??'ha'); }
+        catch (InvalidArgumentException $e) { $data['area_input_error']=$e->getMessage(); $data['area_hectares']=null; }
+    }
     $fees = permit_matrix_assess_fees((string) $data['permit_category'], $data['area_hectares']);
     $data['certification_fee'] = $fees['certification_fee'];
     $data['oath_fee'] = $fees['oath_fee'];
@@ -105,7 +119,7 @@ function permit_normalize_application_data(array $input, ?string $permitCategory
 
 function permit_validate_application_data(array $data, bool $forSubmission = true): array
 {
-    $errors = [];
+    $errors = isset($data['area_input_error']) ? [$data['area_input_error']] : [];
     $fieldLengths = [
         'applicant_type' => ['Applicant type', 50],
         'organization_name' => ['Organization name', 255],
@@ -182,6 +196,21 @@ function permit_validate_application_data(array $data, bool $forSubmission = tru
         }
     }
 
+    $latitude = $data['latitude'] ?? null;
+    if (($data['province'] ?? null) !== null && strcasecmp((string)$data['province'], 'Laguna') !== 0) {
+        $errors[] = 'Province must be Laguna, Philippines.';
+    }
+    if ((int)($data['intake_version']??1)>=2) {
+        $errors=array_merge($errors,laguna_validate_location((string)($data['municipality']??''),(string)($data['barangay']??''),($data['district']??null),$forSubmission));
+    }
+    $longitude = $data['longitude'] ?? null;
+    if (($latitude === null) !== ($longitude === null)) {
+        $errors[] = 'Provide both latitude and longitude, or leave both blank.';
+    } elseif ($latitude !== null && is_numeric($latitude) && is_numeric($longitude)
+        && !geo_point_in_laguna((float) $latitude, (float) $longitude)) {
+        $errors[] = 'The tree-cutting property location must be within Laguna, Philippines.';
+    }
+
     if ($forSubmission) {
         if ($category === null) {
             $errors[] = 'Your account has no applicant classification yet. Set it in your profile before submitting.';
@@ -189,16 +218,12 @@ function permit_validate_application_data(array $data, bool $forSubmission = tru
         $requiredFields = [
             'applicant_type' => 'Applicant type',
             'property_relationship' => 'Property relationship',
-            'property_classification' => 'Property classification',
             'property_owner_name' => 'Property owner name',
-            'property_address' => 'Detailed property location',
             'district' => 'District',
             'barangay' => 'Barangay',
             'municipality' => 'Municipality or city',
             'province' => 'Province',
-            'cutting_purpose' => 'Purpose of cutting',
             'purpose_option' => 'Purpose',
-            'tree_origin' => 'Tree origin',
         ];
         if ($category !== null && (permit_matrix_category($category)['inventory_fee_applies'] ?? false)) {
             $requiredFields['area_hectares'] = 'Area applied for (hectares)';
@@ -224,7 +249,7 @@ function permit_validate_application_data(array $data, bool $forSubmission = tru
     return $errors;
 }
 
-function permit_normalize_tree_records(array $trees): array
+function permit_normalize_tree_records(array $trees, bool $forIntake = false): array
 {
     $normalized = [];
 
@@ -233,11 +258,13 @@ function permit_normalize_tree_records(array $trees): array
         $scientificName = trim((string) ($tree['scientific_name'] ?? ''));
         $diameter = trim((string) ($tree['diameter_cm'] ?? ''));
         $estimatedHeight = trim((string) ($tree['estimated_height_m'] ?? ''));
-        $conditionNotes = trim((string) ($tree['condition_notes'] ?? ''));
+        $conditionNotes = $forIntake ? '' : trim((string) ($tree['condition_notes'] ?? ''));
+        $treeOrigin = trim((string) ($tree['tree_origin'] ?? ''));
         $record = [
             'common_name' => trim((string) ($tree['common_name'] ?? '')),
             'scientific_name' => $scientificName === '' ? null : $scientificName,
             'quantity' => trim((string) ($tree['quantity'] ?? '')),
+            'tree_origin' => $treeOrigin === '' ? null : $treeOrigin,
             'diameter_cm' => $diameter === '' ? null : $diameter,
             'estimated_height_m' => $estimatedHeight === '' ? null : $estimatedHeight,
             'condition_notes' => $conditionNotes === '' ? null : $conditionNotes,
@@ -258,7 +285,7 @@ function permit_normalize_tree_records(array $trees): array
     return $normalized;
 }
 
-function permit_validate_tree_records(array $trees, bool $required = true): array
+function permit_validate_tree_records(array $trees, bool $required = true, ?string $category = null): array
 {
     if ($required && $trees === []) {
         return ['At least one tree record is required.'];
@@ -267,6 +294,13 @@ function permit_validate_tree_records(array $trees, bool $required = true): arra
     $errors = [];
     foreach ($trees as $index => $tree) {
         $position = $index + 1;
+        $origin = $tree['tree_origin'] ?? null;
+        if ($origin !== null && (!isset(permit_matrix_tree_origins()[$origin])
+            || ($category !== null && permit_matrix_replacement_rule($category, $origin) === null))) {
+            $errors[] = 'Tree ' . $position . ' origin is invalid for this permit classification.';
+        } elseif ($required && $category !== null && $origin === null) {
+            $errors[] = 'Tree ' . $position . ' origin is required.';
+        }
         $commonName = (string) ($tree['common_name'] ?? '');
         $quantity = filter_var($tree['quantity'] ?? null, FILTER_VALIDATE_INT, [
             'options' => ['min_range' => 1, 'max_range' => 65535],
@@ -475,6 +509,7 @@ function permit_application_parameters(
         ':organization_name' => $application['organization_name'],
         ':property_relationship' => $application['property_relationship'],
         ':authorization_details' => $application['authorization_details'],
+        ':intake_version' => (int) ($application['intake_version'] ?? 1),
         ':property_classification' => $application['property_classification'],
         ':property_owner_name' => $application['property_owner_name'],
         ':property_address' => $application['property_address'],
@@ -515,7 +550,7 @@ function permit_insert_application_record(PDO $pdo, array $parameters): int
 {
     $stmt = $pdo->prepare(
         'INSERT INTO tbl_permit_applications
-            (transaction_id, submission_key, applicant_user_id, applicant_name,
+            (intake_version, transaction_id, submission_key, applicant_user_id, applicant_name,
              applicant_contact, applicant_address, applicant_type, organization_name,
              property_relationship, authorization_details, property_classification,
              property_owner_name, property_address, lot_number, district, barangay,
@@ -527,7 +562,7 @@ function permit_insert_application_record(PDO $pdo, array $parameters): int
              inspection_status, decision_status, donation_status, release_status,
              validity_status, declaration_confirmed_at, submitted_at)
          VALUES
-            (:transaction_id, :submission_key, :applicant_user_id, :applicant_name,
+            (:intake_version, :transaction_id, :submission_key, :applicant_user_id, :applicant_name,
              :applicant_contact, :applicant_address, :applicant_type, :organization_name,
              :property_relationship, :authorization_details, :property_classification,
              :property_owner_name, :property_address, :lot_number, :district, :barangay,
@@ -586,6 +621,7 @@ function permit_update_application_record(
              organization_name = :organization_name,
              property_relationship = :property_relationship,
              authorization_details = :authorization_details,
+             intake_version = :intake_version,
              property_classification = :property_classification,
              property_owner_name = :property_owner_name,
              property_address = :property_address,
@@ -633,10 +669,10 @@ function permit_replace_tree_records(PDO $pdo, int $applicationId, array $trees)
     $insert = $pdo->prepare(
         'INSERT INTO tbl_permit_trees
             (application_id, common_name, scientific_name, quantity,
-             diameter_cm, estimated_height_m, condition_notes)
+             diameter_cm, estimated_height_m, condition_notes, tree_origin)
          VALUES
             (:application_id, :common_name, :scientific_name, :quantity,
-             :diameter_cm, :estimated_height_m, :condition_notes)'
+             :diameter_cm, :estimated_height_m, :condition_notes, :tree_origin)'
     );
     foreach ($trees as $tree) {
         $insert->execute([
@@ -647,6 +683,7 @@ function permit_replace_tree_records(PDO $pdo, int $applicationId, array $trees)
             ':diameter_cm' => $tree['diameter_cm'],
             ':estimated_height_m' => $tree['estimated_height_m'],
             ':condition_notes' => $tree['condition_notes'],
+            ':tree_origin' => $tree['tree_origin'] ?? null,
         ]);
     }
 }
@@ -706,9 +743,10 @@ function save_permit_draft(
     $submissionKey = permit_validate_submission_key($submissionKey);
     $application = permit_normalize_application_data(
         $applicationInput,
-        permit_applicant_category($pdo, $applicantUserId)
+        permit_applicant_category($pdo, $applicantUserId),
+        true
     );
-    $trees = permit_normalize_tree_records($treeInput);
+    $trees = permit_normalize_tree_records(permit_resolve_species($pdo, $treeInput), true);
     $errors = array_merge(
         permit_validate_application_data($application, false),
         permit_validate_tree_records($trees, false)
@@ -811,12 +849,13 @@ function submit_permit_application(
     $submissionKey = permit_validate_submission_key($submissionKey);
     $application = permit_normalize_application_data(
         $applicationInput,
-        permit_applicant_category($pdo, $applicantUserId)
+        permit_applicant_category($pdo, $applicantUserId),
+        true
     );
-    $trees = permit_normalize_tree_records($treeInput);
+    $trees = permit_normalize_tree_records(permit_resolve_species($pdo, $treeInput), true);
     $errors = array_merge(
         permit_validate_application_data($application, true),
-        permit_validate_tree_records($trees, true)
+        permit_validate_tree_records($trees, true, $application['permit_category'])
     );
     if ($errors !== []) {
         throw new PermitValidationException($errors);
@@ -862,6 +901,28 @@ function submit_permit_application(
                 throw new RuntimeException('This permit application cannot be submitted from its current status.');
             }
             $applicationId = (int) $existing['id'];
+        }
+
+        // Initial scans belong to the saved private draft and accompany final submission.
+        require_once __DIR__ . '/permit_documents.php';
+        $catalogApplication = $application;
+        $catalogApplication['condition_answers'] = json_encode($application['condition_answers'], JSON_THROW_ON_ERROR);
+        $catalog = permit_document_type_catalog($catalogApplication);
+        $attached = [];
+        if ($applicationId !== null) {
+            $files = $pdo->prepare('SELECT * FROM tbl_permit_documents WHERE application_id = ? AND is_current = 1 FOR UPDATE');
+            $files->execute([$applicationId]);
+            foreach ($files->fetchAll() as $document) { $attached[$document['document_type']] = $document; }
+        }
+        $missing = [];
+        foreach ($catalog as $type=>$definition) {
+            if (empty($definition['required'])) continue;
+            if (!isset($attached[$type])) { $missing[] = $definition['label']; continue; }
+            try { permit_document_resolve_path($attached[$type]); }
+            catch (RuntimeException $e) { $missing[] = $definition['label'].' (scan unavailable)'; }
+        }
+        if ($missing !== []) {
+            throw new PermitValidationException(['Attach the required documents before submission: '.implode('; ', $missing).'. Save the draft to upload documents.']);
         }
 
         $transactionId = permit_reserve_transaction_id($pdo, $sequenceYear);
@@ -979,7 +1040,7 @@ function permit_load_application(PDO $pdo, int $applicationId, bool $forUpdate =
                 applicant_type, organization_name, property_relationship,
                 authorization_details, property_owner_name, property_address,
                 lot_number, district, barangay, municipality, province, latitude,
-                longitude, cutting_purpose, permit_category, permit_code,
+                longitude, cutting_purpose, permit_category, permit_code, intake_version, completion_status,
                 applicant_subtype, purpose_option, area_hectares, tree_origin,
                 filed_by_representative, condition_answers, certification_fee,
                 oath_fee, inventory_fee, total_fee, fees_status, fees_confirmed_at,
@@ -1055,7 +1116,7 @@ function permit_list_applications_for_owner(PDO $pdo, int $applicantUserId): arr
 
     $stmt = $pdo->prepare(
         'SELECT a.id, a.transaction_id, a.application_status, a.document_status,
-                a.decision_status, a.release_status, a.submitted_at, a.updated_at,
+                a.decision_status, a.release_status, a.submitted_at, a.updated_at, a.completion_status, a.validity_status,
                 a.property_address, a.municipality, a.province,
                 COUNT(t.id) AS tree_record_count,
                 COALESCE(SUM(t.quantity), 0) AS total_tree_quantity
@@ -1063,7 +1124,7 @@ function permit_list_applications_for_owner(PDO $pdo, int $applicantUserId): arr
          LEFT JOIN tbl_permit_trees t ON t.application_id = a.id
          WHERE a.applicant_user_id = :applicant_user_id
          GROUP BY a.id, a.transaction_id, a.application_status, a.document_status,
-                  a.decision_status, a.release_status, a.submitted_at, a.updated_at,
+                  a.decision_status, a.release_status, a.submitted_at, a.updated_at, a.completion_status, a.validity_status,
                   a.property_address, a.municipality, a.province
          ORDER BY COALESCE(a.submitted_at, a.updated_at) DESC, a.id DESC'
     );
@@ -1103,7 +1164,7 @@ function permit_tree_records_for_actor(
 
     $stmt = $pdo->prepare(
         'SELECT id, application_id, common_name, scientific_name, quantity,
-                diameter_cm, estimated_height_m, condition_notes, created_at
+                diameter_cm, estimated_height_m, condition_notes, tree_origin, created_at
          FROM tbl_permit_trees
          WHERE application_id = :application_id
          ORDER BY id'

@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/advisory.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'community');
 
@@ -21,6 +22,7 @@ try {
     http_response_code(500);
     die('Unable to load advisories at this time. Please try again later.');
 }
+$advisories = registry_date_rows($advisories, 'published_at');
 ?>
 <!doctype html>
 <html lang="en">
@@ -34,7 +36,7 @@ try {
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -63,9 +65,10 @@ try {
                     <path d="M0 14 Q150 2 300 12 T600 10 T900 13 T1200 8" fill="none" stroke="#a9c4ac" stroke-width="2"/>
                 </svg>
             </section>
+            <?php render_registry_date_filter('Publication dates');  ?>
 
             <section class="docket-panel mb-4" aria-label="Advisory search">
-                <form method="get" action="advisories.php" class="row g-3 align-items-end">
+<form method="get" action="advisories.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <div class="col-md-8">
                         <label for="advisorySearch" class="form-label">Search</label>
                         <div class="input-group">
@@ -78,7 +81,7 @@ try {
                         <a class="btn btn-outline-secondary" href="advisories.php" title="Clear search" aria-label="Clear search"><i class="bi bi-x-lg"></i></a>
                     </div>
                 </form>
-            </section>
+</section>
 
             <section class="docket-panel" aria-labelledby="advisoryListHeading">
                 <div class="section-heading">

@@ -353,9 +353,8 @@ function permit_original_receiving_personnel(PDO $pdo): array
 
 function permit_document_upload_lock_reason(array $application): ?string
 {
-    if ($application['transaction_id'] === null || (string) $application['application_status'] === 'draft') {
-        return 'Documents may be uploaded only after final application submission.';
-    }
+    if ((string) $application['application_status'] === 'draft') { return null; }
+    if ($application['transaction_id'] === null) { return 'Save the application before uploading documents.'; }
     if (!in_array((string) $application['application_status'], ['submitted', 'under_review', 'awaiting_documents'], true)) {
         return 'This permit transaction is locked for document uploads.';
     }
@@ -651,7 +650,7 @@ function permit_document_for_actor(PDO $pdo, int $documentId, int $actorUserId):
 
 function permit_document_relative_storage_path(string $transactionId, string $extension): array
 {
-    if (!preg_match('/^TCP-\d{4}-\d{6}$/', $transactionId)) {
+    if (!preg_match('/^(?:TCP-\d{4}-\d{6}|DRAFT-[1-9][0-9]*)$/', $transactionId)) {
         throw new RuntimeException('The permit transaction ID is invalid for document storage.');
     }
     $root = permit_document_storage_root();
@@ -812,7 +811,7 @@ function upload_permit_document(
         }
 
         $storage = permit_document_relative_storage_path(
-            (string) $application['transaction_id'],
+            $application['transaction_id'] !== null ? (string) $application['transaction_id'] : 'DRAFT-' . $applicationId,
             (string) $validatedFile['extension']
         );
         $storedPath = (string) $storage['absolute_path'];
@@ -1315,7 +1314,8 @@ function permit_list_applications_for_rps(PDO $pdo, int $rpsUserId): array
     $stmt = $pdo->query(
         "SELECT a.id, a.transaction_id, a.applicant_name, a.property_address,
                 a.municipality, a.province, a.application_status, a.document_status,
-                a.inspection_status, a.submitted_at,
+                a.inspection_status, a.decision_status, a.donation_status,
+                a.release_status, a.validity_status, a.submitted_at,
                 SUM(CASE WHEN d.is_current = 1 THEN 1 ELSE 0 END) AS current_document_count,
                 SUM(CASE WHEN d.is_current = 1 AND d.verification_status = 'pending' THEN 1 ELSE 0 END) AS pending_document_count,
                 (SELECT COUNT(*) FROM tbl_permit_inspections i WHERE i.application_id = a.id) AS inspection_event_count
@@ -1324,7 +1324,8 @@ function permit_list_applications_for_rps(PDO $pdo, int $rpsUserId): array
          WHERE a.transaction_id IS NOT NULL AND a.application_status <> 'draft'
          GROUP BY a.id, a.transaction_id, a.applicant_name, a.property_address,
                   a.municipality, a.province, a.application_status, a.document_status,
-                  a.inspection_status, a.submitted_at
+                  a.inspection_status, a.decision_status, a.donation_status,
+                  a.release_status, a.validity_status, a.submitted_at
          ORDER BY a.submitted_at DESC, a.id DESC"
     );
 

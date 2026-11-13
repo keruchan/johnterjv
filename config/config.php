@@ -70,10 +70,14 @@ if (DISPLAY_ERRORS) {
 // Adjust these constants to match your local/production
 // MySQL environment. Credentials should ideally be pulled from
 // environment variables outside of source control in production.
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'u763192172_certreefy');
-define('DB_USER', 'u763192172_certreefy');
-define('DB_PASS', 'Certjja3');
+// Optional machine-specific settings are excluded from version control.
+$localDatabaseConfig = is_file(__DIR__ . '/database.local.php')
+    ? require __DIR__ . '/database.local.php'
+    : [];
+define('DB_HOST', $localDatabaseConfig['host'] ?? 'localhost');
+define('DB_NAME', $localDatabaseConfig['name'] ?? 'u763192172_certreefy');
+define('DB_USER', $localDatabaseConfig['user'] ?? 'u763192172_certreefy');
+define('DB_PASS', $localDatabaseConfig['password'] ?? 'Certjja3');
 define('DB_CHARSET', 'utf8mb4');
 
 // Permit scans are private records. The default storage directory sits outside
@@ -212,17 +216,8 @@ define(
     $permitClaimLocation !== '' ? $permitClaimLocation : 'the CENRO Sta. Cruz, Laguna office'
 );
 
-// Public seedling-request program: server-enforced maximum seedlings a single
-// Community request may ask for across all species. Tunable per office.
-$seedlingMaxPerRequest = filter_var(
-    getenv('CERTREEFY_SEEDLING_MAX_PER_REQUEST'),
-    FILTER_VALIDATE_INT,
-    ['options' => ['min_range' => 1, 'max_range' => 100000]]
-);
-define(
-    'CERTREEFY_SEEDLING_MAX_PER_REQUEST',
-    $seedlingMaxPerRequest === false ? 50 : $seedlingMaxPerRequest
-);
+// Calendar-year distribution monitoring target; never a request/release cap.
+define('CERTREEFY_SEEDLING_ANNUAL_TARGET', 15000);
 
 // Runtime and one-time setup share one authoritative donation policy source.
 require_once __DIR__ . '/permit_policy.php';

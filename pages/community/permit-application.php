@@ -15,6 +15,11 @@ require_once __DIR__ . '/../../includes/permit_decisions.php';
 require_once __DIR__ . '/../../includes/permit_donation_view.php';
 require_once __DIR__ . '/../../includes/permit_release.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/permit_guidance.php';
+require_once __DIR__ . '/../../includes/permit_completion.php';
+require_once __DIR__ . '/../../includes/permit_tarpaulin.php';
+require_once __DIR__ . '/../../includes/locations.php';
+require_once __DIR__ . '/../../includes/seedling_locations.php';
 
 require_role($pdo, 'community');
 
@@ -80,6 +85,11 @@ if ($applicationId !== null) {
     }
 }
 
+$applicationStep = (int) filter_var(
+    $_SERVER['REQUEST_METHOD'] === 'POST' ? ($_POST['application_step'] ?? 0) : ($_GET['step'] ?? 0),
+    FILTER_VALIDATE_INT,
+    ['options' => ['default' => 0, 'min_range' => 0, 'max_range' => 6]]
+);
 $submissionKey = $applicationRecord !== null
     ? (string) $applicationRecord['submission_key']
     : new_permit_submission_key();
@@ -96,6 +106,7 @@ if ($applicationRecord !== null
     $permitCategory = (string) $applicationRecord['permit_category'];
 }
 $permitCategoryDefinition = permit_matrix_category($permitCategory);
+$treeSpeciesCatalog=permit_intake_species($pdo);
 
 if ($applicationRecord !== null) {
     $formData = permit_normalize_application_data($applicationRecord, $permitCategory);
@@ -143,8 +154,9 @@ if ($applicationRecord !== null) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $formData = permit_normalize_application_data($_POST, $permitCategory);
-    $treeData = permit_normalize_tree_records(is_array($_POST['trees'] ?? null) ? $_POST['trees'] : []);
+    $formData = permit_normalize_application_data($_POST, $permitCategory, true);
+    try { $postedTrees=permit_tree_input($_POST); $treeData=permit_normalize_tree_records(permit_resolve_species($pdo,$postedTrees),true); }
+    catch(InvalidArgumentException $e){$errors[]=$e->getMessage();$postedTrees=[];$treeData=[];}
     $submissionKey = trim((string) ($_POST['submission_key'] ?? ''));
     $action = trim((string) ($_POST['action'] ?? ''));
     $submittedToken = (string) ($_POST['csrf_token'] ?? '');
@@ -165,12 +177,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $userId,
                     $submissionKey,
                     $_POST,
-                    is_array($_POST['trees'] ?? null) ? $_POST['trees'] : [],
+                    $postedTrees,
                     $applicationId
                 );
                 $_SESSION['csrf_permit_token'] = bin2hex(random_bytes(32));
                 $_SESSION['permit_draft_success'] = 'Draft saved successfully. No transaction ID has been generated yet.';
-                header('Location: permit-application.php?id=' . (int) $result['application_id']);
+                header('Location: permit-application.php?id=' . (int) $result['application_id'] . '&step=' . $applicationStep);
                 exit;
             }
 
@@ -179,14 +191,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $userId,
                 $submissionKey,
                 $_POST,
-                is_array($_POST['trees'] ?? null) ? $_POST['trees'] : [],
+                $postedTrees,
                 $applicationId
             );
             $_SESSION['csrf_permit_token'] = bin2hex(random_bytes(32));
             $_SESSION['permit_success'] = [
                 'message' => !empty($result['duplicate'])
                     ? 'This application was already submitted. Its original transaction ID is shown below.'
-                    : 'Tree Cutting Permit application submitted successfully.',
+                    : 'Application submitted. RPS will review your information and attached documents. Keep your transaction ID and check the application for updates.',
                 'transaction_id' => (string) $result['transaction_id'],
             ];
             header('Location: permit-applications.php');
@@ -259,7 +271,7 @@ $documentProgress = $requiredDocumentCount > 0
     : 0;
 $documentUploadLockReason = $applicationRecord !== null
     ? permit_document_upload_lock_reason($applicationRecord)
-    : 'Submit the application before uploading scans.';
+    : 'Save the draft to upload the required documents before submission.';
 $communityInspectionTrees = [];
 foreach ($permitInspections as $inspection) {
     $communityInspectionTrees[(int) $inspection['id']] = permit_inspection_tree_verifications_for_actor(
@@ -282,7 +294,7 @@ foreach ($permitInspections as $inspection) {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -329,7 +341,7 @@ foreach ($permitInspections as $inspection) {
                     <p class="fw-semibold mb-2">Please fix the following:</p>
                     <ul class="mb-0">
                         <?php foreach ($errors as $error): ?>
-                            <li><?php echo e((string) $error); ?></li>
+                            <li data-permit-error><?php echo e((string) $error); ?></li>
                         <?php endforeach; ?>
                     </ul>
                 </div>
@@ -356,14 +368,30 @@ foreach ($permitInspections as $inspection) {
                 </section>
             <?php endif; ?>
 
+            <?php render_permit_next_steps($applicationRecord ?? ['application_status'=>'draft']); ?>
             <form method="post" action="permit-application.php" novalidate id="permit-form">
                 <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_token']); ?>">
                 <input type="hidden" name="submission_key" value="<?php echo e($submissionKey); ?>">
                 <input type="hidden" name="application_id" value="<?php echo $applicationId !== null ? e((string) $applicationId) : ''; ?>">
+                <?php if ($isEditable): ?>
+                    <input type="hidden" name="application_step" id="application-step" value="<?php echo $applicationStep; ?>">
+                <?php endif; ?>
 
                 <div class="row g-3 align-items-start">
                     <div class="col-xl-9">
-                        <section class="docket-panel mb-3" aria-labelledby="applicant-heading">
+                        <?php if ($isEditable): ?>
+                            <section class="docket-panel mb-3" id="application-progress" aria-label="Application progress" hidden>
+                                <div class="d-flex flex-wrap justify-content-between gap-2 mb-2" aria-live="polite">
+                                    <span class="fw-semibold" id="application-step-title"></span>
+                                    <span class="text-secondary small" id="application-step-count"></span>
+                                </div>
+                                <div class="progress" role="progressbar" aria-label="Application sections" aria-valuemin="1" aria-valuemax="6" aria-valuenow="1" id="application-step-progress">
+                                    <div class="progress-bar bg-success" id="application-step-bar"></div>
+                                </div>
+                            </section>
+                        <?php endif; ?>
+                        <div class="alert alert-danger" id="permit-field-errors" role="alert" hidden></div>
+                        <section class="docket-panel mb-3" aria-labelledby="applicant-heading" data-permit-step="Applicant information">
                             <div class="section-heading">
                                 <h2 id="applicant-heading">Applicant and Contact Information</h2>
                                 <span class="section-note">From your active Client profile</span>
@@ -405,7 +433,7 @@ foreach ($permitInspections as $inspection) {
                             </div>
                         </section>
 
-                        <section class="docket-panel mb-3" aria-labelledby="classification-heading">
+                        <section class="docket-panel mb-3" aria-labelledby="classification-heading" data-permit-step="Permit classification">
                             <div class="section-heading">
                                 <h2 id="classification-heading">Permit Classification</h2>
                                 <span class="section-note">Set by your account registration</span>
@@ -439,7 +467,7 @@ foreach ($permitInspections as $inspection) {
                             <?php endif; ?>
                         </section>
 
-                        <section class="docket-panel mb-3" aria-labelledby="property-heading">
+                        <section class="docket-panel mb-3" aria-labelledby="property-heading" data-permit-step="Property ownership and location">
                             <div class="section-heading">
                                 <h2 id="property-heading">Property Ownership and Location</h2>
                                 <span class="section-note">Fields marked * are required for submission</span>
@@ -453,48 +481,10 @@ foreach ($permitInspections as $inspection) {
                                         <option value="authorized_representative"<?php echo ($formData['property_relationship'] ?? null) === 'authorized_representative' ? ' selected' : ''; ?>>Authorized representative</option>
                                     </select>
                                 </div>
-                                <div class="col-md-6">
-                                    <label for="property_owner_name" class="form-label">Property owner name <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="property_owner_name" name="property_owner_name" value="<?php echo e((string) ($formData['property_owner_name'] ?? '')); ?>" maxlength="255" required<?php echo $disabled; ?>>
-                                </div>
-                                <div class="col-12" id="authorization-field">
-                                    <label for="authorization_details" class="form-label">Authorization details</label>
-                                    <textarea class="form-control" id="authorization_details" name="authorization_details" rows="2" maxlength="1000"<?php echo $disabled; ?>><?php echo e((string) ($formData['authorization_details'] ?? '')); ?></textarea>
-                                    <div class="form-text">Describe the owner's authorization — subject to CENRO verification.</div>
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="property_classification" class="form-label">Property classification <span class="text-danger">*</span></label>
-                                    <select class="form-select" id="property_classification" name="property_classification" required<?php echo $disabled; ?>>
-                                        <option value="">Select classification</option>
-                                        <option value="public_domain"<?php echo ($formData['property_classification'] ?? null) === 'public_domain' ? ' selected' : ''; ?>>Public domain</option>
-                                        <option value="private_property"<?php echo ($formData['property_classification'] ?? null) === 'private_property' ? ' selected' : ''; ?>>Private property</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="lot_number" class="form-label">Lot or property reference</label>
-                                    <input type="text" class="form-control" id="lot_number" name="lot_number" value="<?php echo e((string) ($formData['lot_number'] ?? '')); ?>" maxlength="100"<?php echo $disabled; ?>>
-                                </div>
-                                <div class="col-md-3">
-                                    <label for="district" class="form-label">District <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="district" name="district" value="<?php echo e((string) ($formData['district'] ?? '')); ?>" maxlength="100" required<?php echo $disabled; ?>>
-                                    <div class="form-text">District coverage is pending business verification.</div>
-                                </div>
-                                <div class="col-md-3">
-                                    <label for="province" class="form-label">Province <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="province" name="province" value="<?php echo e((string) ($formData['province'] ?? '')); ?>" maxlength="100" required<?php echo $disabled; ?>>
-                                </div>
-                                <div class="col-md-3">
-                                    <label for="municipality" class="form-label">Municipality or city <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="municipality" name="municipality" value="<?php echo e((string) ($formData['municipality'] ?? '')); ?>" maxlength="100" required<?php echo $disabled; ?>>
-                                </div>
-                                <div class="col-md-3">
-                                    <label for="barangay" class="form-label">Barangay <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="barangay" name="barangay" value="<?php echo e((string) ($formData['barangay'] ?? '')); ?>" maxlength="100" required<?php echo $disabled; ?>>
-                                </div>
-                                <div class="col-12">
-                                    <label for="property_address" class="form-label">Detailed property location <span class="text-danger">*</span></label>
-                                    <textarea class="form-control" id="property_address" name="property_address" rows="3" maxlength="500" required<?php echo $disabled; ?>><?php echo e((string) ($formData['property_address'] ?? '')); ?></textarea>
-                                </div>
+                                <div class="col-md-6"><label class="form-label" for="property_owner_name">Property owner name <span class="text-danger">*</span></label><input class="form-control" id="property_owner_name" name="property_owner_name" maxlength="255" value="<?php echo e((string)($formData['property_owner_name']??'')); ?>" required<?php echo $disabled; ?>></div>
+                                <div class="col-12" id="authorization-field"><label class="form-label" for="authorization_details">Authorization details</label><textarea class="form-control" id="authorization_details" name="authorization_details" maxlength="1000"<?php echo $disabled; ?>><?php echo e((string)($formData['authorization_details']??'')); ?></textarea></div>
+                                <div class="col-12"><label class="form-label" for="property_address">Detailed property location <span class="small text-secondary">(optional)</span></label><textarea class="form-control" id="property_address" name="property_address" maxlength="500"<?php echo $disabled; ?>><?php echo e((string)($formData['property_address']??'')); ?></textarea></div>
+                                <div class="col-12"><?php render_laguna_location_fields($formData,['province'=>'province','district'=>'district','municipality'=>'municipality','barangay'=>'barangay'],true,!$isEditable); ?></div>
                                 <div class="col-md-6">
                                     <label for="latitude" class="form-label">Latitude</label>
                                     <input type="number" class="form-control" id="latitude" name="latitude" value="<?php echo e((string) ($formData['latitude'] ?? '')); ?>" min="-90" max="90" step="0.0000001"<?php echo $disabled; ?>>
@@ -506,17 +496,17 @@ foreach ($permitInspections as $inspection) {
                                 <div class="col-12">
                                     <label class="form-label mb-1"><?php echo $isEditable ? 'Pin the property on the map' : 'Property location map'; ?></label>
                                     <?php if ($isEditable): ?>
-                                        <p class="text-secondary small mb-2">Click the map (or use &#9737; for your current location) to set coordinates. Drag the pin to adjust — this helps CENRO locate the trees during inspection.</p>
+                                        <p class="text-secondary small mb-2">Select a location within Laguna, Philippines. Click the map (or use &#9737; for your current location) and drag the pin to adjust.</p>
                                     <?php endif; ?>
-                                    <div id="propertyMap" class="geo-map geo-map-compact"></div>
+                                    <div id="propertyMap" class="geo-map geo-map-tall"></div>
                                 </div>
                             </div>
                         </section>
 
-                        <section class="docket-panel mb-3" aria-labelledby="purpose-heading">
+                        <section class="docket-panel mb-3" aria-labelledby="purpose-heading" data-permit-step="Purpose and declarations">
                             <div class="section-heading">
-                                <h2 id="purpose-heading">Purpose and Tree Information</h2>
-                                <span class="section-note">Add one related record per tree type or measurement set</span>
+                                <h2 id="purpose-heading">Purpose and Declarations</h2>
+                                <span class="section-note">Describe the work and review the applicable fees</span>
                             </div>
                             <div class="row g-3 mb-4">
                                 <?php if ($permitCategoryDefinition !== null): ?>
@@ -531,31 +521,13 @@ foreach ($permitInspections as $inspection) {
                                         <small class="text-secondary"><?php echo e($permitCategoryDefinition['purpose_group']); ?></small>
                                     </div>
                                     <div class="col-md-6">
-                                        <label for="tree_origin" class="form-label">Tree origin <span class="text-danger">*</span></label>
-                                        <select class="form-select" id="tree_origin" name="tree_origin" required<?php echo $disabled; ?>>
-                                            <option value="">Select tree origin</option>
-                                            <?php foreach (permit_matrix_tree_origins() as $originKey => $originLabel): ?>
-                                                <?php if (permit_matrix_replacement_rule($permitCategory, $originKey) === null) { continue; } ?>
-                                                <option value="<?php echo e($originKey); ?>"<?php echo ($formData['tree_origin'] ?? null) === $originKey ? ' selected' : ''; ?>><?php echo e($originLabel); ?></option>
-                                            <?php endforeach; ?>
-                                        </select>
-                                        <small class="text-secondary" id="replacement-note">
-                                            <?php
-                                            $currentRule = ($formData['tree_origin'] ?? null) !== null
-                                                ? permit_matrix_replacement_rule($permitCategory, (string) $formData['tree_origin'])
-                                                : null;
-                                            echo $currentRule !== null
-                                                ? 'Replacement obligation: ' . e($currentRule)
-                                                : 'Determines your seedling replacement obligation.';
-                                            ?>
-                                        </small>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <label for="area_hectares" class="form-label">
-                                            Area applied for (hectares)
-                                            <?php if ($permitCategoryDefinition['inventory_fee_applies']): ?><span class="text-danger">*</span><?php endif; ?>
-                                        </label>
-                                        <input type="number" step="0.0001" min="0" class="form-control" id="area_hectares" name="area_hectares" value="<?php echo e((string) ($formData['area_hectares'] ?? '')); ?>"<?php echo $permitCategoryDefinition['inventory_fee_applies'] ? ' required' : ''; ?><?php echo $disabled; ?>>
+                                        <label for="area_value" class="form-label">Area applied for<?php if ($permitCategoryDefinition['inventory_fee_applies']): ?> <span class="text-danger">*</span><?php endif; ?></label>
+                                        <div class="input-group">
+                                            <input type="number" step="any" min="0.00000001" class="form-control" id="area_value" name="area_value" value="<?php echo e((string)($_POST['area_value']??$formData['area_hectares']??'')); ?>"<?php echo $permitCategoryDefinition['inventory_fee_applies']?' required':''; ?><?php echo $disabled; ?>>
+                                            <label for="area_unit" class="visually-hidden">Area unit</label><select class="form-select" id="area_unit" name="area_unit"<?php echo $disabled; ?>><?php foreach(['ha'=>'Hectares','sqm'=>'Square metres','sqkm'=>'Square kilometres'] as $unit=>$label):?><option value="<?php echo $unit; ?>"<?php echo ($_POST['area_unit']??'ha')===$unit?' selected':''; ?>><?php echo e($label); ?></option><?php endforeach; ?></select>
+                                        </div>
+                                        <input type="hidden" id="area_hectares" name="area_hectares" value="<?php echo e((string)($formData['area_hectares']??'')); ?>">
+                                        <div class="small text-secondary mt-1" id="area-conversion" aria-live="polite"></div>
                                         <small class="text-secondary">
                                             <?php echo $permitCategoryDefinition['inventory_fee_applies']
                                                 ? 'Inventory fee is assessed at ' . e(permit_matrix_format_peso(PERMIT_FEE_INVENTORY_PER_HECTARE)) . ' per hectare.'
@@ -563,14 +535,6 @@ foreach ($permitInspections as $inspection) {
                                         </small>
                                     </div>
                                 <?php endif; ?>
-                                <div class="col-12">
-                                    <label for="cutting_purpose" class="form-label">Purpose details <span class="text-danger">*</span></label>
-                                    <textarea class="form-control" id="cutting_purpose" name="cutting_purpose" rows="3" maxlength="500" required<?php echo $disabled; ?>><?php echo e((string) ($formData['cutting_purpose'] ?? '')); ?></textarea>
-                                </div>
-                                <div class="col-12">
-                                    <label for="application_notes" class="form-label">Additional application notes</label>
-                                    <textarea class="form-control" id="application_notes" name="application_notes" rows="3" maxlength="5000"<?php echo $disabled; ?>><?php echo e((string) ($formData['application_notes'] ?? '')); ?></textarea>
-                                </div>
                             </div>
 
                             <?php
@@ -593,76 +557,41 @@ foreach ($permitInspections as $inspection) {
                                 </div>
                             <?php endif; ?>
 
-                            <?php if ($permitCategoryDefinition !== null): ?>
-                                <?php $assessedFees = permit_matrix_assess_fees($permitCategory, $formData['area_hectares'] ?? null); ?>
-                                <div class="alert alert-light border mb-4">
-                                    <div class="fw-semibold mb-2"><i class="bi bi-receipt me-1"></i>Assessed fees</div>
-                                    <div class="d-flex justify-content-between"><span>Certification fee</span><span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['certification_fee'])); ?></span></div>
-                                    <div class="d-flex justify-content-between"><span>Oath fee</span><span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['oath_fee'])); ?></span></div>
-                                    <div class="d-flex justify-content-between">
-                                        <span>Inventory fee<?php echo $assessedFees['inventory_applies'] ? '' : ' (not applicable)'; ?></span>
-                                        <span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['inventory_fee'])); ?></span>
-                                    </div>
-                                    <hr class="my-2">
-                                    <div class="d-flex justify-content-between fw-semibold"><span>Total</span><span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['total_fee'])); ?></span></div>
-                                    <small class="text-secondary">Payable at the CENRO office when you submit your original documents.</small>
-                                </div>
-                            <?php endif; ?>
 
+
+                        </section>
+
+                        <section class="docket-panel mb-3" aria-labelledby="tree-records-heading" data-permit-step="Tree records">
                             <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mb-3">
-                                <h3 class="h5 mb-0">Tree records</h3>
+                                <h2 class="h5 mb-0" id="tree-records-heading">Tree records</h2>
                                 <?php if ($isEditable): ?>
                                     <button type="button" class="btn btn-sm btn-outline-success" id="add-tree">
-                                        <i class="bi bi-plus-circle"></i> Add tree entry
+                                        <i class="bi bi-plus-circle" aria-hidden="true"></i> Add tree entry
                                     </button>
                                 <?php endif; ?>
                             </div>
-                            <div id="tree-records" class="d-grid gap-3">
-                                <?php foreach ($treeData as $index => $tree): ?>
-                                    <div class="card border-0 bg-light tree-record" data-tree-row>
-                                        <div class="card-body">
-                                            <div class="d-flex justify-content-between align-items-center mb-3">
-                                                <h4 class="h6 mb-0 tree-title">Tree entry <?php echo $index + 1; ?></h4>
-                                                <?php if ($isEditable): ?>
-                                                    <button type="button" class="btn btn-sm btn-outline-danger remove-tree" aria-label="Remove tree entry <?php echo $index + 1; ?>">
-                                                        <i class="bi bi-trash"></i> Remove
-                                                    </button>
-                                                <?php endif; ?>
-                                            </div>
-                                            <div class="row g-3">
-                                                <div class="col-md-6">
-                                                    <label class="form-label" data-tree-label="common_name" for="tree_<?php echo $index; ?>_common_name">Common name <span class="text-danger">*</span></label>
-                                                    <input type="text" class="form-control" data-tree-input="common_name" id="tree_<?php echo $index; ?>_common_name" name="trees[<?php echo $index; ?>][common_name]" value="<?php echo e((string) ($tree['common_name'] ?? '')); ?>" maxlength="150" required<?php echo $disabled; ?>>
-                                                </div>
-                                                <div class="col-md-6">
-                                                    <label class="form-label" data-tree-label="scientific_name" for="tree_<?php echo $index; ?>_scientific_name">Scientific name</label>
-                                                    <input type="text" class="form-control" data-tree-input="scientific_name" id="tree_<?php echo $index; ?>_scientific_name" name="trees[<?php echo $index; ?>][scientific_name]" value="<?php echo e((string) ($tree['scientific_name'] ?? '')); ?>" maxlength="150"<?php echo $disabled; ?>>
-                                                </div>
-                                                <div class="col-md-4">
-                                                    <label class="form-label" data-tree-label="quantity" for="tree_<?php echo $index; ?>_quantity">Number of trees <span class="text-danger">*</span></label>
-                                                    <input type="number" class="form-control" data-tree-input="quantity" id="tree_<?php echo $index; ?>_quantity" name="trees[<?php echo $index; ?>][quantity]" value="<?php echo e((string) ($tree['quantity'] ?? '')); ?>" min="1" max="65535" step="1" required<?php echo $disabled; ?>>
-                                                </div>
-                                                <div class="col-md-4">
-                                                    <label class="form-label" data-tree-label="diameter_cm" for="tree_<?php echo $index; ?>_diameter_cm">Diameter (cm)</label>
-                                                    <input type="number" class="form-control" data-tree-input="diameter_cm" id="tree_<?php echo $index; ?>_diameter_cm" name="trees[<?php echo $index; ?>][diameter_cm]" value="<?php echo e((string) ($tree['diameter_cm'] ?? '')); ?>" min="0.01" max="999999.99" step="0.01"<?php echo $disabled; ?>>
-                                                </div>
-                                                <div class="col-md-4">
-                                                    <label class="form-label" data-tree-label="estimated_height_m" for="tree_<?php echo $index; ?>_estimated_height_m">Estimated height (m)</label>
-                                                    <input type="number" class="form-control" data-tree-input="estimated_height_m" id="tree_<?php echo $index; ?>_estimated_height_m" name="trees[<?php echo $index; ?>][estimated_height_m]" value="<?php echo e((string) ($tree['estimated_height_m'] ?? '')); ?>" min="0.01" max="999999.99" step="0.01"<?php echo $disabled; ?>>
-                                                </div>
-                                                <div class="col-12">
-                                                    <label class="form-label" data-tree-label="condition_notes" for="tree_<?php echo $index; ?>_condition_notes">Condition or measurement notes</label>
-                                                    <textarea class="form-control" data-tree-input="condition_notes" id="tree_<?php echo $index; ?>_condition_notes" name="trees[<?php echo $index; ?>][condition_notes]" rows="2" maxlength="500"<?php echo $disabled; ?>><?php echo e((string) ($tree['condition_notes'] ?? '')); ?></textarea>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                <?php endforeach; ?>
+                            <?php if($isEditable): ?>
+                            <div class="row g-2 align-items-end mb-3"><div class="col-sm-6 col-lg-4"><label class="form-label" for="estimated-tree-count">Estimated total trees to cut</label><input class="form-control" id="estimated-tree-count" type="number" min="1" max="131070000" step="1" value="<?php echo max(1,array_sum(array_map(static fn($t)=>(int)($t['quantity']??0),$treeData))); ?>"></div><div class="col-auto"><button type="button" class="btn btn-outline-success" id="generate-tree-table">Generate rows</button></div><div class="col-12"><p class="small text-secondary mb-0" id="tree-table-message" aria-live="polite">One row per tree, or use quantities to group trees of the same species. Existing entries are preserved.</p></div></div>
+                            <?php endif; ?>
+                            <div class="table-responsive permit-tree-scroller"><table class="table align-middle permit-tree-table"><thead><tr><th>#</th><th>Species</th><th>Tree origin</th><th>Scientific name</th><th>Quantity</th><th>Diameter (cm)</th><th>Height (m)</th><th>Action</th></tr></thead><tbody id="tree-records">
+                                <?php foreach($treeData as $index=>$tree): render_intake_tree_row($tree,(int)$index,$isEditable,$treeSpeciesCatalog); endforeach; ?>
+                            </tbody></table></div>
+                            <div class="row g-3 mt-1">
+                                <div class="col-12">
+                                    <label for="application_notes" class="form-label">Additional application notes</label>
+                                    <textarea class="form-control" id="application_notes" name="application_notes" rows="3" maxlength="5000"<?php echo $disabled; ?>><?php echo e((string) ($formData['application_notes'] ?? '')); ?></textarea>
+                                </div>
                             </div>
-                            <p class="form-text mt-3 mb-0">Optional until CENRO confirms they're required for this classification.</p>
                         </section>
 
-                        <section class="docket-panel" aria-labelledby="declaration-heading">
+                        <?php if ($isEditable && $applicationRecord === null): ?>
+                            <section class="docket-panel mb-3" id="supporting-documents-start" data-permit-step="Supporting documents">
+                                <h2 class="h5">Supporting Documents</h2>
+                                <p>Save your draft, then upload the required documents before submitting the application.</p>
+                                <button class="btn btn-certreefy" type="submit" name="action" value="save_draft" formnovalidate>Save draft and attach documents</button>
+                            </section>
+                        <?php endif; ?>
+                        <section class="docket-panel" aria-labelledby="declaration-heading" data-permit-step="Applicant declaration">
                             <div class="section-heading">
                                 <h2 id="declaration-heading">Applicant Declaration</h2>
                             </div>
@@ -674,15 +603,9 @@ foreach ($permitInspections as $inspection) {
                             </div>
                             <?php if ($isEditable): ?>
                                 <div class="d-flex flex-wrap gap-2 mt-4">
-                                    <button type="submit" class="btn btn-outline-secondary" name="action" value="save_draft" formnovalidate>
-                                        <i class="bi bi-save"></i> Save draft
-                                    </button>
                                     <button type="submit" class="btn btn-certreefy" name="action" value="submit">
                                         <i class="bi bi-send-check"></i> Submit application
                                     </button>
-                                    <a href="permit-applications.php" class="btn btn-outline-secondary">
-                                        <i class="bi bi-arrow-left"></i> Back to applications
-                                    </a>
                                 </div>
                             <?php else: ?>
                                 <div class="alert alert-light border mt-4 mb-0" role="status">
@@ -693,6 +616,20 @@ foreach ($permitInspections as $inspection) {
                                 </a>
                             <?php endif; ?>
                         </section>
+                        <?php if ($isEditable): ?>
+                            <div class="docket-panel mt-3">
+                                <div id="application-step-navigation" hidden>
+                                    <div class="d-flex justify-content-between gap-2 mb-3">
+                                        <button type="button" class="btn btn-outline-secondary" id="application-previous"><i class="bi bi-arrow-left"></i> Previous</button>
+                                        <button type="button" class="btn btn-certreefy" id="application-next">Next <i class="bi bi-arrow-right"></i></button>
+                                    </div>
+                                </div>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <button type="submit" form="permit-form" class="btn btn-outline-secondary" name="action" value="save_draft" formnovalidate><i class="bi bi-save" aria-hidden="true"></i> Save draft</button>
+                                    <a href="permit-applications.php" class="btn btn-outline-secondary">Back to applications</a>
+                                </div>
+                            </div>
+                        <?php endif; ?>
                     </div>
 
                     <div class="col-xl-3 align-self-stretch">
@@ -717,6 +654,22 @@ foreach ($permitInspections as $inspection) {
                             <div class="mt-3 small text-secondary">
                                 Drafts remain editable only by their owner. Final submission locks the application and records its transaction, status history, notification, and audit event.
                             </div>
+                            <?php if ($permitCategoryDefinition !== null): ?>
+                                <?php $assessedFees = permit_matrix_assess_fees($permitCategory, $formData['area_hectares'] ?? null); ?>
+                                <div class="border rounded p-3 mt-3">
+                                    <div class="fw-semibold mb-2" id="permit-fee-guide" data-certification="<?php echo $assessedFees['certification_fee']; ?>" data-oath="<?php echo $assessedFees['oath_fee']; ?>" data-inventory-rate="<?php echo $assessedFees['inventory_applies'] ? PERMIT_FEE_INVENTORY_PER_HECTARE : 0; ?>"><i class="bi bi-receipt me-1"></i>Assessment of fees</div>
+                                    <div class="d-flex justify-content-between"><span>Certification fee</span><span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['certification_fee'])); ?></span></div>
+                                    <div class="d-flex justify-content-between"><span>Oath fee</span><span class="tabular"><?php echo e(permit_matrix_format_peso($assessedFees['oath_fee'])); ?></span></div>
+                                    <div class="d-flex justify-content-between">
+                                        <span>Inventory fee<?php echo $assessedFees['inventory_applies'] ? '' : ' (not applicable)'; ?></span>
+                                        <span class="tabular" id="inventory-fee-value"><?php echo e(permit_matrix_format_peso($assessedFees['inventory_fee'])); ?></span>
+                                    </div>
+                                    <hr class="my-2">
+                                    <div class="d-flex justify-content-between fw-semibold"><span>Total</span><span class="tabular" id="total-fee-value"><?php echo e(permit_matrix_format_peso($assessedFees['total_fee'])); ?></span></div>
+                                    <small class="text-secondary">Payable at the CENRO office when you submit your original documents.</small>
+                                </div>
+                            <?php endif; ?>
+                            <?php if ($isEditable): ?><div class="mt-3"><h3 class="h6">Field Completion</h3><ul class="list-unstyled small mb-0" id="application-completion"></ul></div><?php endif; ?>
                         </aside>
                     </div>
                 </div>
@@ -759,7 +712,7 @@ foreach ($permitInspections as $inspection) {
                         <p class="text-secondary mb-0">No RPS review action has been recorded yet.</p>
                     <?php else: ?>
                         <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Review update</th><th>Remarks</th><th>Decision details</th><th>Date</th></tr></thead><tbody>
-                            <?php foreach ($permitDecisions as $decisionEvent): ?><tr><td><span class="badge <?php echo e(permit_decision_event_badge((string) $decisionEvent['decision'])); ?>"><?php echo e(permit_decision_event_label((string) $decisionEvent['decision'])); ?></span></td><td class="text-break"><?php echo e((string) ($decisionEvent['decision_notes'] ?? '-')); ?><?php if (!empty($decisionEvent['decision_conditions'])): ?><div class="small mt-1"><strong>Conditions:</strong> <?php echo e((string) $decisionEvent['decision_conditions']); ?></div><?php endif; ?></td><td class="small"><?php if ($decisionEvent['approved_tree_count'] !== null): ?><div>Approved trees: <strong><?php echo (int) $decisionEvent['approved_tree_count']; ?></strong></div><div>Property: <?php echo e(permit_status_label((string) $decisionEvent['property_classification'])); ?></div><div>Donation: <?php echo (int) $decisionEvent['donation_seedling_count']; ?> seedling(s)</div><?php else: ?>-<?php endif; ?></td><td><?php echo e(date('M j, Y g:i A', strtotime((string) $decisionEvent['decided_at']))); ?></td></tr><?php endforeach; ?>
+                            <?php foreach ($permitDecisions as $decisionEvent): ?><tr><td><span class="badge <?php echo e(permit_decision_event_badge((string) $decisionEvent['decision'])); ?>"><?php echo e(permit_decision_event_label((string) $decisionEvent['decision'])); ?></span></td><td class="text-break"><?php echo e((string) ($decisionEvent['decision_notes'] ?? '-')); ?><?php if (!empty($decisionEvent['decision_conditions'])): ?><div class="small mt-1"><strong>Conditions:</strong> <?php echo e((string) $decisionEvent['decision_conditions']); ?></div><?php endif; ?></td><td class="small"><?php if ($decisionEvent['approved_tree_count'] !== null): ?><div>Approved trees: <strong><?php echo (int) $decisionEvent['approved_tree_count']; ?></strong></div><?php if (!empty($decisionEvent['property_classification'])): ?><div>Property: <?php echo e(permit_status_label((string) $decisionEvent['property_classification'])); ?></div><?php endif; ?><div>Donation: <?php echo (int) $decisionEvent['donation_seedling_count']; ?> seedling(s)</div><?php else: ?>-<?php endif; ?></td><td><?php echo e(date('M j, Y g:i A', strtotime((string) $decisionEvent['decided_at']))); ?></td></tr><?php endforeach; ?>
                         </tbody></table></div>
                     <?php endif; ?>
                 </section>
@@ -834,7 +787,7 @@ foreach ($permitInspections as $inspection) {
             <?php endif; ?>
 
             <?php if ($applicationRecord !== null): ?>
-                <section class="docket-panel mt-3" id="documents" aria-labelledby="documents-heading">
+                <section class="docket-panel mt-3" id="documents" aria-labelledby="documents-heading"<?php echo $isEditable ? ' data-permit-step="Supporting documents"' : ''; ?>>
                     <div class="section-heading d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-2">
                         <div>
                             <h2 id="documents-heading">Scanned Documents</h2>
@@ -873,7 +826,12 @@ foreach ($permitInspections as $inspection) {
                         </div>
                     <?php endif; ?>
 
-                    <div class="row g-3">
+                    <p class="text-danger small" id="required-documents-error" role="alert" hidden>Upload all required documents before continuing.</p>
+                    <div class="table-responsive">
+                        <table class="table align-middle permit-document-table">
+                            <caption class="visually-hidden">Required documents, submitted scans, review remarks, and upload actions</caption>
+                            <thead><tr><th scope="col">Requirement</th><th scope="col">Attachment and scan review</th><th scope="col">Original verification</th><th scope="col">Upload</th></tr></thead>
+                            <tbody>
                         <?php foreach ($documentCatalog as $documentType => $definition): ?>
                             <?php
                             $currentDocument = $currentDocuments[$documentType] ?? null;
@@ -887,9 +845,8 @@ foreach ($permitInspections as $inspection) {
                                     || (string) $currentDocument['verification_status'] !== 'accepted'
                                     || $originalReplacementRequested);
                             ?>
-                            <div class="col-lg-6">
-                                <article class="card h-100 border-0 bg-light">
-                                    <div class="card-body">
+                            <tr data-required-upload="<?php echo !empty($definition['required']) ? '1' : '0'; ?>" data-uploaded="<?php echo $currentDocument !== null ? '1' : '0'; ?>">
+                                    <td class="permit-document-cell">
                                         <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
                                             <h3 class="h6 mb-0"><?php echo e((string) $definition['label']); ?></h3>
                                             <span class="badge text-bg-light border text-nowrap">
@@ -900,7 +857,9 @@ foreach ($permitInspections as $inspection) {
                                                 }); ?>
                                             </span>
                                         </div>
-                                        <p class="small text-secondary"><?php echo e((string) $definition['description']); ?></p>
+                                        <p class="small text-secondary mb-0"><?php echo e((string) $definition['description']); ?></p>
+                                    </td>
+                                    <td class="permit-document-cell">
 
                                         <?php if ($currentDocument !== null): ?>
                                             <div class="border rounded bg-white p-3 mb-3">
@@ -917,7 +876,7 @@ foreach ($permitInspections as $inspection) {
                                                     </span>
                                                 </div>
                                                 <?php if (!empty($currentDocument['verification_notes'])): ?>
-                                                    <div class="small mt-2"><strong>RPS note:</strong> <?php echo e((string) $currentDocument['verification_notes']); ?></div>
+                                                    <div class="small mt-2"><strong>Scan review remarks:</strong> <?php echo e((string) $currentDocument['verification_notes']); ?></div>
                                                 <?php endif; ?>
                                                 <a class="btn btn-sm btn-outline-secondary mt-2" href="permit-document-download.php?id=<?php echo e((string) $currentDocument['id']); ?>">
                                                     <i class="bi bi-download"></i> Download
@@ -927,6 +886,8 @@ foreach ($permitInspections as $inspection) {
                                             <div class="small text-secondary mb-3"><i class="bi bi-file-earmark"></i> No scan uploaded.</div>
                                         <?php endif; ?>
 
+                                    </td>
+                                    <td class="permit-document-cell">
                                         <div class="border rounded bg-white p-3 mb-3">
                                             <div class="small text-secondary mb-1">Original hardcopy verification</div>
                                             <?php if ($latestOriginalReview === null): ?>
@@ -942,6 +903,8 @@ foreach ($permitInspections as $inspection) {
                                             <?php endif; ?>
                                         </div>
 
+                                    </td>
+                                    <td class="permit-document-cell">
                                         <?php if ($canUploadDocument): ?>
                                             <form method="post" action="permit-document-upload.php" enctype="multipart/form-data">
                                                 <input type="hidden" name="csrf_token" value="<?php echo e((string) $_SESSION['csrf_permit_document_token']); ?>">
@@ -961,10 +924,11 @@ foreach ($permitInspections as $inspection) {
                                         <?php elseif ($currentDocument !== null && (string) $currentDocument['verification_status'] === 'accepted'): ?>
                                             <div class="small text-success"><i class="bi bi-check-circle"></i> Accepted online scans are locked against Client replacement.</div>
                                         <?php endif; ?>
-                                    </div>
-                                </article>
-                            </div>
+                                    </td>
+                            </tr>
                         <?php endforeach; ?>
+                            </tbody>
+                        </table>
                     </div>
 
                     <?php if ($archivedDocuments !== []): ?>
@@ -972,7 +936,7 @@ foreach ($permitInspections as $inspection) {
                             <h3 class="h5">Replacement History</h3>
                             <div class="table-responsive">
                                 <table class="table align-middle mb-0">
-                                    <thead><tr><th>Document type</th><th>Filename</th><th>Status before archive</th><th>Uploaded</th><th class="text-end">File</th></tr></thead>
+                                    <thead><tr><th>Document type</th><th>Filename</th><th>Status before archive</th><th>Review remarks</th><th>Uploaded</th><th class="text-end">File</th></tr></thead>
                                     <tbody>
                                         <?php foreach ($archivedDocuments as $document): ?>
                                             <?php $definition = permit_document_type((string) $document['document_type']); ?>
@@ -980,6 +944,7 @@ foreach ($permitInspections as $inspection) {
                                                 <td><?php echo e((string) ($definition['label'] ?? $document['document_type'])); ?></td>
                                                 <td class="text-break"><?php echo e((string) $document['original_filename']); ?></td>
                                                 <td><span class="badge <?php echo e(permit_document_status_badge((string) $document['verification_status'], false)); ?>"><?php echo e(permit_document_status_label((string) $document['verification_status'], false)); ?></span></td>
+                                                <td class="text-break"><?php echo e((string) ($document['verification_notes'] ?: 'No remarks recorded.')); ?></td>
                                                 <td><?php echo e(date('M j, Y g:i A', strtotime((string) $document['created_at']))); ?></td>
                                                 <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="permit-document-download.php?id=<?php echo e((string) $document['id']); ?>"><i class="bi bi-download"></i> Download</a></td>
                                             </tr>
@@ -991,43 +956,45 @@ foreach ($permitInspections as $inspection) {
                     <?php endif; ?>
                 </section>
             <?php endif; ?>
+            <?php if ($applicationRecord !== null && $applicationRecord['transaction_id'] !== null): render_permit_tally($pdo, $applicationRecord, false); endif; ?>
+            <?php if ($applicationRecord !== null): render_permit_completion_panel($pdo, $applicationRecord, (int)$_SESSION['id']); endif; ?>
+            <?php if ($applicationRecord !== null): render_permit_tarpaulin($pdo, $applicationRecord, false); endif; ?>
+            <?php if ($donationRequirement !== null): render_seedling_provider_locations($pdo); endif; ?>
         </main>
     </div>
 
     <?php if ($isEditable): ?>
-        <template id="tree-template">
-            <div class="card border-0 bg-light tree-record" data-tree-row>
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h4 class="h6 mb-0 tree-title">Tree entry</h4>
-                        <button type="button" class="btn btn-sm btn-outline-danger remove-tree" aria-label="Remove tree entry">
-                            <i class="bi bi-trash"></i> Remove
-                        </button>
-                    </div>
-                    <div class="row g-3">
-                        <div class="col-md-6"><label class="form-label" data-tree-label="common_name">Common name <span class="text-danger">*</span></label><input type="text" class="form-control" data-tree-input="common_name" maxlength="150" required></div>
-                        <div class="col-md-6"><label class="form-label" data-tree-label="scientific_name">Scientific name</label><input type="text" class="form-control" data-tree-input="scientific_name" maxlength="150"></div>
-                        <div class="col-md-4"><label class="form-label" data-tree-label="quantity">Number of trees <span class="text-danger">*</span></label><input type="number" class="form-control" data-tree-input="quantity" min="1" max="65535" step="1" required></div>
-                        <div class="col-md-4"><label class="form-label" data-tree-label="diameter_cm">Diameter (cm)</label><input type="number" class="form-control" data-tree-input="diameter_cm" min="0.01" max="999999.99" step="0.01"></div>
-                        <div class="col-md-4"><label class="form-label" data-tree-label="estimated_height_m">Estimated height (m)</label><input type="number" class="form-control" data-tree-input="estimated_height_m" min="0.01" max="999999.99" step="0.01"></div>
-                        <div class="col-12"><label class="form-label" data-tree-label="condition_notes">Condition or measurement notes</label><textarea class="form-control" data-tree-input="condition_notes" rows="2" maxlength="500"></textarea></div>
-                    </div>
-                </div>
-            </div>
-        </template>
+        <template id="tree-template"><?php render_intake_tree_row([],0,true,$treeSpeciesCatalog); ?></template>
     <?php endif; ?>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="../../js/geo-map.js"></script>
+    <?php geo_render_map_script('../../'); ?>
     <script>
-        CertreefyGeo.picker('propertyMap', {
-            latInput: 'latitude',
-            lngInput: 'longitude',
-            readOnly: <?php echo $isEditable ? 'false' : 'true'; ?>
-        });
+        (() => {
+            let propertyMap = null;
+            const initializeMap = () => {
+                if (!document.getElementById('propertyMap').offsetWidth) return;
+                if (propertyMap) {
+                    propertyMap.invalidateSize();
+                    return;
+                }
+                propertyMap = CertreefyGeo.picker('propertyMap', {
+                    latInput: 'latitude',
+                    lngInput: 'longitude',
+                    boundary: <?php echo json_encode(geo_laguna_boundary(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
+                    readOnly: <?php echo $isEditable ? 'false' : 'true'; ?>
+                });
+            };
+            <?php if ($isEditable): ?>
+            document.getElementById('permit-form').addEventListener('permit-step-change', () => requestAnimationFrame(initializeMap));
+            <?php else: ?>
+            initializeMap();
+            <?php endif; ?>
+        })();
     </script>
     <?php if ($isEditable): ?>
+        <script src="../../js/permit-form-feedback.js?v=<?php echo e(certreefy_asset_version('js/permit-form-feedback.js')); ?>"></script>
         <script>
             (() => {
                 const records = document.getElementById('tree-records');
@@ -1040,7 +1007,7 @@ foreach ($permitInspections as $inspection) {
 
                 const renumber = () => {
                     records.querySelectorAll('[data-tree-row]').forEach((row, index) => {
-                        row.querySelector('.tree-title').textContent = `Tree entry ${index + 1}`;
+                        row.querySelector('.tree-title').textContent = String(index + 1);
                         const removeButton = row.querySelector('.remove-tree');
                         removeButton.setAttribute('aria-label', `Remove tree entry ${index + 1}`);
                         row.querySelectorAll('[data-tree-input]').forEach((input) => {
@@ -1064,16 +1031,150 @@ foreach ($permitInspections as $inspection) {
                     renumber();
                 });
 
+                records.addEventListener('trees:changed',renumber);
                 const toggleConditionalFields = () => {
                     organizationField.classList.toggle('d-none', applicantType.value !== 'organization');
                     authorizationField.classList.toggle('d-none', relationship.value !== 'authorized_representative');
+                    document.getElementById('organization_name').required = applicantType.value === 'organization';
+                    document.getElementById('authorization_details').required = relationship.value === 'authorized_representative';
                 };
                 applicantType.addEventListener('change', toggleConditionalFields);
                 relationship.addEventListener('change', toggleConditionalFields);
                 renumber();
                 toggleConditionalFields();
+
+                const form = document.getElementById('permit-form');
+                const feeGuide = document.getElementById('permit-fee-guide');
+                const areaField = document.getElementById('area_hectares');
+                if (feeGuide && areaField) areaField.addEventListener('input', () => {
+                    const area = Math.max(0, Number(areaField.value) || 0);
+                    const inventory = Math.round(area * Number(feeGuide.dataset.inventoryRate) * 100) / 100;
+                    const total = inventory + Number(feeGuide.dataset.certification) + Number(feeGuide.dataset.oath);
+                    const peso = new Intl.NumberFormat('en-PH', {style:'currency', currency:'PHP'});
+                    document.getElementById('inventory-fee-value').textContent = peso.format(inventory);
+                    document.getElementById('total-fee-value').textContent = peso.format(total);
+                });
+                const steps = Array.from(form.querySelectorAll('[data-permit-step]'));
+                const documents = document.getElementById('documents');
+                if (documents?.hasAttribute('data-permit-step')) steps.splice(5, 0, documents);
+                const stepInput = document.getElementById('application-step');
+                const previous = document.getElementById('application-previous');
+                const next = document.getElementById('application-next');
+                let current = Math.min(steps.length - 1, Math.max(0, Number(stepInput.value) || 0));
+                document.getElementById('declaration_confirmed').required = true;
+                const navigation = document.getElementById('application-step-navigation').parentElement;
+                const navigationHome = document.createComment('Permit navigation');
+                navigation.before(navigationHome);
+
+                function showStep(index, moveFocus = true) {
+                    current = index;
+                    if (steps[index] === documents) documents.after(navigation);
+                    else navigationHome.after(navigation);
+                    stepInput.value = String(index);
+                    steps.forEach((step, i) => { step.hidden = i !== index; });
+                    previous.disabled = index === 0;
+                    next.hidden = index === steps.length - 1;
+                    document.getElementById('application-step-title').textContent = steps[index].dataset.permitStep;
+                    document.getElementById('application-step-count').textContent = `Step ${index + 1} of ${steps.length}`;
+                    document.getElementById('application-step-progress').setAttribute('aria-valuenow', String(index + 1));
+                    document.getElementById('application-step-bar').style.width = `${(index + 1) / steps.length * 100}%`;
+                    document.getElementById('application-step-progress').setAttribute('aria-valuemax', String(steps.length));
+                    updateCompletion();
+                    form.dispatchEvent(new CustomEvent('permit-step-change', { detail: { index } }));
+                    if (moveFocus) {
+                        const heading = steps[index].querySelector('h2');
+                        heading.tabIndex = -1;
+                        heading.focus({ preventScroll: true });
+                        (steps[index] === documents ? documents : document.getElementById('application-progress')).scrollIntoView({ block: 'start', behavior: 'instant' });
+                    }
+                }
+
+                const fieldFeedback = CertreefyPermitFeedback(form, field => {
+                    const index = steps.findIndex(step => step.contains(field));
+                    if (index >= 0) showStep(index);
+                });
+
+                function validateStep(index) {
+                    const step = steps[index];
+                    if (step.id === 'supporting-documents-start') {
+                        showStep(index);
+                        step.querySelector('button').focus();
+                        return false;
+                    }
+                    if (step === documents) {
+                        const missing = documents.querySelector('[data-required-upload="1"][data-uploaded="0"]');
+                        document.getElementById('required-documents-error').hidden = !missing;
+                        if (missing) { showStep(index); missing.querySelector('input[type="file"]')?.focus(); return false; }
+                        return true;
+                    }
+                    if (step.contains(records)) {
+                        records.setAttribute('tabindex', '-1');
+                        if (!records.querySelector('[data-tree-row]')) {
+                            showStep(index);
+                            document.getElementById('add-tree').focus();
+                            treeError.hidden = false;
+                            return false;
+                        }
+                        treeError.hidden = true;
+                    }
+                    return fieldFeedback.validate(step);
+                }
+
+                function updateCompletion() {
+                    const list = document.getElementById('application-completion');
+                    list.replaceChildren();
+                    steps.forEach(step => {
+                        let complete;
+                        if (step.id === 'supporting-documents-start') complete = false;
+                        else if (step === documents) complete = !documents.querySelector('[data-required-upload="1"][data-uploaded="0"]');
+                        else complete = [...step.querySelectorAll('input,select,textarea')].every(field => field.form !== form || !field.willValidate || (field.checkValidity() && !field.classList.contains('is-invalid')));
+                        if (step.contains(records) && !records.querySelector('[data-tree-row]')) complete = false;
+                        const item = document.createElement('li');
+                        const icon = document.createElement('i');
+                        icon.className = complete ? 'bi bi-check-circle-fill text-success me-2' : 'bi bi-x-circle text-secondary me-2';
+                        icon.setAttribute('aria-hidden', 'true');
+                        item.append(icon, document.createTextNode(step.dataset.permitStep + (complete ? ' — Complete' : ' — Incomplete')));
+                        list.append(item);
+                    });
+                }
+                form.addEventListener('input', updateCompletion);
+                form.addEventListener('change', updateCompletion);
+                records.addEventListener('click', () => requestAnimationFrame(updateCompletion));
+                addButton.addEventListener('click', () => requestAnimationFrame(updateCompletion));
+
+                const treeError = document.createElement('p');
+                treeError.className = 'text-danger small mt-2 mb-0';
+                treeError.setAttribute('role', 'alert');
+                treeError.textContent = 'Add at least one tree entry before continuing.';
+                treeError.hidden = true;
+                records.after(treeError);
+                previous.addEventListener('click', () => showStep(current - 1));
+                next.addEventListener('click', () => {
+                    if (validateStep(current)) showStep(current + 1);
+                });
+                form.addEventListener('submit', event => {
+                    if (event.submitter?.value === 'save_draft') return;
+                    if (current < steps.length - 1) {
+                        event.preventDefault();
+                        if (validateStep(current)) showStep(current + 1);
+                        return;
+                    }
+                    for (let index = 0; index < steps.length; index++) {
+                        if (!validateStep(index)) {
+                            event.preventDefault();
+                            return;
+                        }
+                    }
+                });
+                document.getElementById('application-progress').hidden = false;
+                document.getElementById('application-step-navigation').hidden = false;
+                showStep(current, false);
+                fieldFeedback.serverErrors();
             })();
         </script>
     <?php endif; ?>
+<script src="../../js/intake-fields.js?v=<?php echo e(certreefy_asset_version('js/intake-fields.js')); ?>"></script>
+<?php render_location_script(); ?>
+<script src="../../js/seedling-locations.js?v=<?php echo e(certreefy_asset_version('js/seedling-locations.js')); ?>"></script>
 </body>
 </html>

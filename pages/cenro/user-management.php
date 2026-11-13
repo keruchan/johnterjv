@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/user.php';
 require_once __DIR__ . '/../../includes/user_management.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'superadmin');
 
@@ -432,7 +433,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 try {
     $userList = user_management_list($pdo, $filters, 10);
-    $statusCounts = user_management_status_counts($pdo);
+    $statusCounts = user_management_status_counts($pdo, $filters);
 } catch (PDOException $e) {
     error_log('[CERTREEFY USER MANAGEMENT LIST ERROR] ' . $e->getMessage());
     http_response_code(500);
@@ -453,7 +454,7 @@ $filters['page'] = $userList['page'];
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -503,6 +504,7 @@ $filters['page'] = $userList['page'];
                 </div>
             <?php endif; ?>
 
+            <?php render_registry_date_filter('Account registration dates'); ?>
             <section class="row g-3 mb-4" aria-label="Account status summary">
                 <?php
                 $summaryCards = [
@@ -514,20 +516,20 @@ $filters['page'] = $userList['page'];
                 ?>
                 <?php foreach ($summaryCards as [$status, $icon, $label, $tone]): ?>
                     <div class="col-sm-6 col-xl-3">
-                        <div class="ledger-card <?php echo e($tone); ?>">
+                        <a class="ledger-card summary-card <?php echo e($tone); ?>" href="<?php echo e(registry_url(['status' => $status, 'summary' => null])); ?>"<?php echo $filters['status'] === $status ? ' aria-current="page"' : ''; ?>>
                             <div class="d-flex justify-content-between align-items-start">
                                 <span class="ledger-icon"><i class="bi bi-<?php echo e($icon); ?>"></i></span>
                                 <span class="ledger-tag">Accounts</span>
                             </div>
                             <div class="ledger-value tabular"><?php echo e((string) $statusCounts[$status]); ?></div>
                             <div class="ledger-caption"><?php echo e($label); ?></div>
-                        </div>
+                        </a>
                     </div>
                 <?php endforeach; ?>
             </section>
 
             <section class="docket-panel user-filter-panel mb-4" aria-label="User filters">
-                <form method="get" action="user-management.php" class="row g-3 align-items-end">
+                <form method="get" action="user-management.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <div class="col-lg-5">
                         <label for="userSearch" class="form-label">Search users</label>
                         <div class="input-group">
@@ -602,7 +604,7 @@ $filters['page'] = $userList['page'];
                                         <div class="user-identity">
                                             <span class="user-avatar" aria-hidden="true"><?php echo e(strtoupper(substr((string) $user['fname'], 0, 1))); ?></span>
                                             <div>
-                                                <div class="user-name"><?php echo e($fullName); ?></div>
+                                                <div class="user-name"><a class="record-link" data-row-link href="user-management.php?<?php echo e($detailQuery); ?>"><?php echo e($fullName); ?></a></div>
                                                 <div class="user-meta">@<?php echo e((string) $user['username']); ?> &middot; <?php echo e((string) $user['email']); ?></div>
                                             </div>
                                         </div>
@@ -611,11 +613,8 @@ $filters['page'] = $userList['page'];
                                     <td><span class="role-badge"><?php echo e($roleLabels[$user['role']] ?? ucfirst((string) $user['role'])); ?></span></td>
                                     <td><span class="account-status status-<?php echo e((string) $user['status']); ?>"><?php echo e($statusLabels[$user['status']] ?? ucfirst((string) $user['status'])); ?></span></td>
                                     <td class="text-nowrap"><?php echo e(date('M j, Y', strtotime((string) $user['created_at']))); ?></td>
-                                    <td>
+                                    <td data-record-actions>
                                         <div class="user-actions justify-content-end">
-                                            <a class="btn btn-sm btn-outline-secondary icon-action" href="user-management.php?<?php echo e($detailQuery); ?>" title="View user" data-bs-toggle="tooltip" aria-label="View <?php echo e($fullName); ?>">
-                                                <i class="bi bi-eye"></i>
-                                            </a>
                                             <?php if ($isModifiable): ?>
                                                 <a class="btn btn-sm btn-outline-primary icon-action" href="user-management.php?<?php echo e($editQuery); ?>" title="Edit user" data-bs-toggle="tooltip" aria-label="Edit <?php echo e($fullName); ?>">
                                                     <i class="bi bi-pencil"></i>
@@ -638,6 +637,7 @@ $filters['page'] = $userList['page'];
                                                         <?php endif; ?>
                                                     </ul>
                                                 </div>
+                                                <?php render_record_action_placeholders(); ?>
                                             <?php else: ?>
                                                 <button class="btn btn-sm btn-outline-secondary icon-action" type="button" disabled title="Protected Superadmin account" aria-label="Protected Superadmin account"><i class="bi bi-lock"></i></button>
                                             <?php endif; ?>

@@ -47,6 +47,12 @@ foreach ($items as $item) {
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root { --ink: #202b22; --muted: #566058; --line: #ccd2c9; --fern: #2d6a4f; }
+        @media screen {
+            html { font-size: 90%; }
+            .table-responsive { max-width: 100%; overflow-x: auto; }
+            .table-responsive table { width: max-content; min-width: 100%; }
+            .table-responsive th, .table-responsive td { white-space: nowrap; }
+        }
         * { box-sizing: border-box; }
         body {
             margin: 0;
@@ -146,6 +152,7 @@ foreach ($items as $item) {
             <div class="field"><div class="k">Pickup location</div><div class="v"><?php echo e(seedling_claim_location()); ?></div></div>
         </div>
 
+        <div class="table-responsive">
         <table>
             <thead>
                 <tr><th>Species</th><th class="qty">Approved quantity</th></tr>
@@ -165,6 +172,7 @@ foreach ($items as $item) {
                 <tr><td>Total seedlings</td><td class="qty"><?php echo (int) $totalApproved; ?></td></tr>
             </tfoot>
         </table>
+        </div>
 
         <?php if ($status === 'claimed'): ?>
             <div class="grid">

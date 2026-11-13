@@ -189,9 +189,9 @@ function permit_decision_readiness(
 
     $requiredFields = [
         'transaction_id', 'applicant_name', 'applicant_contact', 'applicant_address',
-        'applicant_type', 'property_relationship', 'property_classification',
-        'property_owner_name', 'property_address', 'district', 'barangay',
-        'municipality', 'province', 'cutting_purpose',
+        'applicant_type', 'property_relationship',
+        'property_owner_name', 'district', 'barangay',
+        'municipality', 'province',
     ];
     $applicationComplete = $application['submitted_at'] !== null
         && $application['declaration_confirmed_at'] !== null;
@@ -199,8 +199,11 @@ function permit_decision_readiness(
         $applicationComplete = $applicationComplete
             && trim((string) ($application[$field] ?? '')) !== '';
     }
-    $applicationComplete = $applicationComplete
-        && isset(permit_donation_policy_catalog()[(string) ($application['property_classification'] ?? '')]);
+    if ((int) ($application['intake_version'] ?? 1) < 2) {
+        $applicationComplete = $applicationComplete && isset(permit_donation_policy_catalog()[(string) ($application['property_classification'] ?? '')]);
+    } else {
+        $applicationComplete = $applicationComplete && trim((string) ($application['purpose_option'] ?? '')) !== '';
+    }
     if ((string) ($application['applicant_type'] ?? '') === 'organization') {
         $applicationComplete = $applicationComplete
             && trim((string) ($application['organization_name'] ?? '')) !== '';
@@ -355,6 +358,10 @@ function permit_decision_readiness(
             'passed' => $noBlockingRequirement && $reviewStateAllowed,
         ],
     ];
+    if ((int) ($application['intake_version'] ?? 1) >= 2) {
+        $tally = permit_tally_current($pdo, $applicationId, $forUpdate);
+        $checks['tally'] = ['label'=>'Site-visit tally uploaded and validated', 'passed'=>$tally !== null];
+    }
     $ready = !in_array(false, array_map(
         static fn (array $check): bool => (bool) $check['passed'],
         $checks
@@ -434,7 +441,7 @@ function permit_list_applications_for_review(
         'SELECT a.id, a.transaction_id, a.applicant_name, a.property_address,
                 a.municipality, a.province, a.application_status,
                 a.document_status, a.inspection_status, a.decision_status,
-                a.donation_status, a.submitted_at,
+                a.donation_status, a.release_status, a.validity_status, a.submitted_at, a.completion_status,
                 (SELECT COUNT(*) FROM tbl_permit_documents d WHERE d.application_id = a.id AND d.is_current = 1) AS current_document_count,
                 (SELECT COUNT(*) FROM tbl_permit_documents d WHERE d.application_id = a.id AND d.is_current = 1 AND d.verification_status = \'pending\') AS pending_document_count,
                 (SELECT COUNT(*) FROM tbl_permit_inspections i WHERE i.application_id = a.id) AS inspection_event_count,
@@ -685,9 +692,10 @@ function record_permit_review_action(
                 );
             }
             $approvedTreeCount = (int) $approvedValue;
-            $donationRequirement = permit_donation_policy_for_classification(
-                (string) $application['property_classification']
-            );
+            $donationRequirement = permit_donation_policy_for_application($pdo, $application);
+            if (isset($donationRequirement['tree_count']) && $approvedTreeCount !== $donationRequirement['tree_count']) {
+                throw new PermitDecisionValidationException('Approved tree count must match the validated cutting tally ('.$donationRequirement['tree_count'].').');
+            }
             $event = 'approved';
         } elseif ($action === 'decline') {
             if ($currentDecisionStatus !== 'under_review') {
@@ -749,7 +757,7 @@ function record_permit_review_action(
                 $application,
                 $actorUserId,
                 'donation',
-                'required',
+                (int)$donationRequirement['count'] === 0 ? 'waived' : 'required',
                 $basis
             );
             permit_decision_transition_summary(
@@ -757,7 +765,7 @@ function record_permit_review_action(
                 $application,
                 $actorUserId,
                 'application',
-                'awaiting_donation',
+                (int)$donationRequirement['count'] === 0 ? 'ready_for_release' : 'awaiting_donation',
                 'Approved application is awaiting the configured seedling donation requirement.'
             );
         } elseif ($action === 'decline') {

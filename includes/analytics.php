@@ -98,6 +98,7 @@ function analytics_range_conditions(array $range, string $column, string $prefix
 {
     $conditions = [];
     $params = [];
+    if (!empty($range['error'])) { return [['1 = 0'], []]; }
     if ($range['from'] !== '') {
         $conditions[] = $column . ' >= :' . $prefix . '_from';
         $params[':' . $prefix . '_from'] = $range['from'] . ' 00:00:00';

@@ -12,6 +12,8 @@
  * Mark a filterable column on its <th>:
  *   data-tt-filter="Status"          adds an "All Status" dropdown built from
  *                                    that column's distinct values
+ *   data-tt-stage-status             adds separate Stage and Status dropdowns;
+ *                                    cells provide data-tt-stage/status values
  *
  * Purely presentational: it shows/hides existing <tr> rows the server already
  * rendered. Tables that use server-side pagination should NOT opt in.
@@ -26,6 +28,13 @@
     function cellText(row, index) {
         var cell = row.cells[index];
         return cell ? (cell.textContent || '').replace(/\s+/g, ' ').trim() : '';
+    }
+
+    function filterText(row, filter) {
+        var cell = row.cells[filter.idx];
+        return filter.part && cell
+            ? (cell.getAttribute('data-tt-' + filter.part) || '').trim()
+            : cellText(row, filter.idx);
     }
 
     function isPlaceholder(row) {
@@ -53,7 +62,10 @@
         var headRow = table.tHead ? table.tHead.rows[0] : null;
         if (headRow) {
             Array.prototype.forEach.call(headRow.cells, function (th, idx) {
-                if (th.hasAttribute('data-tt-filter')) {
+                if (th.hasAttribute('data-tt-stage-status')) {
+                    filters.push({ idx: idx, label: 'Stage', part: 'stage' });
+                    filters.push({ idx: idx, label: 'Status', part: 'status' });
+                } else if (th.hasAttribute('data-tt-filter')) {
                     filters.push({ idx: idx, label: (th.getAttribute('data-tt-filter') || th.textContent || '').trim() });
                 }
             });
@@ -80,17 +92,17 @@
         }
 
         var filterSelects = [];
-        filters.forEach(function (f) {
-            var seen = {};
+        function populateFilter(sel, rows) {
+            var previous = sel.value;
+            var f = sel.__ttFilter;
+            var seen = new Set();
             var values = [];
-            dataRows.forEach(function (r) {
-                var t = cellText(r, f.idx);
-                if (t && !seen[t]) { seen[t] = true; values.push(t); }
+            rows.forEach(function (r) {
+                var t = filterText(r, f);
+                if (t && !seen.has(t)) { seen.add(t); values.push(t); }
             });
             values.sort();
-            var sel = document.createElement('select');
-            sel.className = 'form-select form-select-sm tt-filter';
-            sel.setAttribute('aria-label', 'Filter by ' + f.label);
+            sel.replaceChildren();
             var opt0 = document.createElement('option');
             opt0.value = '';
             opt0.textContent = 'All ' + f.label;
@@ -101,7 +113,14 @@
                 o.textContent = v;
                 sel.appendChild(o);
             });
-            sel.__ttIdx = f.idx;
+            sel.value = values.some(function (v) { return v.toLowerCase() === previous; }) ? previous : '';
+        }
+        filters.forEach(function (f) {
+            var sel = document.createElement('select');
+            sel.className = 'form-select form-select-sm tt-filter';
+            sel.setAttribute('aria-label', 'Filter by ' + f.label);
+            sel.__ttFilter = f;
+            populateFilter(sel, dataRows);
             filterSelects.push(sel);
             toolbar.appendChild(sel);
         });
@@ -126,13 +145,13 @@
         function applyFilter() {
             var q = (searchInput && searchInput.value || '').trim().toLowerCase();
             var active = filterSelects
-                .map(function (s) { return { idx: s.__ttIdx, val: s.value }; })
+                .map(function (s) { return { filter: s.__ttFilter, val: s.value }; })
                 .filter(function (f) { return f.val !== ''; });
 
             state.filtered = dataRows.filter(function (r) {
                 if (q && rowText(r).indexOf(q) === -1) { return false; }
                 for (var i = 0; i < active.length; i++) {
-                    if (cellText(r, active[i].idx).toLowerCase() !== active[i].val) { return false; }
+                    if (filterText(r, active[i].filter).toLowerCase() !== active[i].val) { return false; }
                 }
                 return true;
             });
@@ -194,14 +213,110 @@
         }
 
         if (searchInput) { searchInput.addEventListener('input', applyFilter); }
-        filterSelects.forEach(function (s) { s.addEventListener('change', applyFilter); });
+        filterSelects.forEach(function (s) {
+            s.addEventListener('change', function () {
+                if (s.__ttFilter.part === 'stage') {
+                    var stageRows = dataRows.filter(function (r) {
+                        return !s.value || filterText(r, s.__ttFilter).toLowerCase() === s.value;
+                    });
+                    filterSelects.forEach(function (dependent) {
+                        if (dependent.__ttFilter.part === 'status' && dependent.__ttFilter.idx === s.__ttFilter.idx) {
+                            populateFilter(dependent, stageRows);
+                        }
+                    });
+                }
+                applyFilter();
+            });
+        });
 
         render();
     }
 
+    function addHorizontalScrollbar(wrapper) {
+        if (wrapper.__ttScrollbar) { return; }
+        var table = wrapper.querySelector('table');
+        if (!table) { return; }
+        wrapper.__ttScrollbar = true;
+        var scrollbar = document.createElement('div');
+        scrollbar.className = 'table-scrollbar';
+        scrollbar.hidden = true;
+        scrollbar.tabIndex = 0;
+        scrollbar.setAttribute('role', 'region');
+        scrollbar.setAttribute('aria-label', 'Scroll table columns left or right');
+        var track = document.createElement('div');
+        track.className = 'table-scrollbar-track';
+        scrollbar.appendChild(track);
+        wrapper.parentNode.insertBefore(scrollbar, wrapper);
+
+        function update() {
+            track.style.width = wrapper.scrollWidth + 'px';
+            scrollbar.hidden = wrapper.scrollWidth <= wrapper.clientWidth + 1;
+            scrollbar.scrollLeft = wrapper.scrollLeft;
+        }
+        scrollbar.addEventListener('scroll', function () {
+            if (Math.abs(wrapper.scrollLeft - scrollbar.scrollLeft) > 1) {
+                wrapper.scrollLeft = scrollbar.scrollLeft;
+            }
+        });
+        wrapper.addEventListener('scroll', function () {
+            if (Math.abs(scrollbar.scrollLeft - wrapper.scrollLeft) > 1) {
+                scrollbar.scrollLeft = wrapper.scrollLeft;
+            }
+        });
+        if (typeof ResizeObserver !== 'undefined') {
+            var observer = new ResizeObserver(update);
+            observer.observe(wrapper);
+            observer.observe(table);
+        } else {
+            window.addEventListener('resize', update);
+        }
+        update();
+    }
+
+    function enableRecordRows() {
+        document.querySelectorAll('table tbody tr').forEach(function (row) {
+            var link = row.querySelector('[data-row-link]');
+            var trigger = row.querySelector('[data-row-trigger]');
+            if ((!link && !trigger) || row.__recordRow) { return; }
+            row.__recordRow = true;
+            row.classList.add('record-row');
+            function openRecord(event) {
+                if (link) {
+                    if (event.ctrlKey || event.metaKey || link.target === '_blank') {
+                        window.open(link.href, '_blank', 'noopener');
+                    } else {
+                        window.location.assign(link.href);
+                    }
+                } else {
+                    trigger.click();
+                }
+            }
+            row.addEventListener('click', function (event) {
+                if (event.defaultPrevented || event.target.closest('a, button, input, select, textarea, label, form, [data-record-actions], [contenteditable="true"]')) { return; }
+                if (window.getSelection().toString()) { return; }
+                openRecord(event);
+            });
+            // Linked references retain native Tab/Enter and open-in-new-tab support.
+            // Modal-only records get a keyboard target on the row itself.
+            if (!link) {
+                row.tabIndex = 0;
+                row.setAttribute('role', 'button');
+                row.setAttribute('aria-label', 'Open details: ' + row.cells[0].textContent.trim());
+                row.addEventListener('keydown', function (event) {
+                    if (event.target === row && (event.key === 'Enter' || event.key === ' ')) {
+                        event.preventDefault();
+                        openRecord(event);
+                    }
+                });
+            }
+        });
+    }
+
     function init() {
+        enableRecordRows();
         var tables = document.querySelectorAll('table[data-table-tools]');
         Array.prototype.forEach.call(tables, enhance);
+        Array.prototype.forEach.call(document.querySelectorAll('.table-responsive'), addHorizontalScrollbar);
     }
 
     if (document.readyState === 'loading') {

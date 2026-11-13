@@ -191,7 +191,7 @@ function planting_site_recommendations(PDO $pdo): array
 function planting_site_map_features(PDO $pdo): array
 {
     $rows = $pdo->query(
-        "SELECT site_name, boundary_geojson, center_lat, center_lng,
+        "SELECT id, site_name, boundary_geojson, center_lat, center_lng,
                 soil_type, moisture_level, recommended_season, suitable_species
          FROM tbl_planting_sites
          WHERE is_active = 1
@@ -201,6 +201,7 @@ function planting_site_map_features(PDO $pdo): array
     $features = [];
     foreach ($rows as $row) {
         $features[] = [
+            'id' => (int)$row['id'],
             'name' => (string) $row['site_name'],
             'classification' => 'planting',
             'geojson' => (string) ($row['boundary_geojson'] ?? ''),

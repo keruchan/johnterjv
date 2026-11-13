@@ -9,6 +9,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/permit.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'community');
 
@@ -25,6 +26,7 @@ if (!empty($_SESSION['permit_success']) && is_array($_SESSION['permit_success'])
 
 try {
     $applications = permit_list_applications_for_owner($pdo, $userId);
+    $applications = record_visibility_filter($pdo, $applications, 'permit_application');
 } catch (PDOException $e) {
     error_log('[CERTREEFY PERMIT LIST ERROR] ' . $e->getMessage());
     http_response_code(500);
@@ -42,6 +44,14 @@ function community_permit_status_badge(string $status): string
         default => 'text-bg-light',
     };
 }
+$registryRows = registry_date_rows($applications, static fn ($r) => $r['submitted_at'] ?: $r['updated_at']);
+$registryPredicates = [
+    'draft' => static fn ($r) => $r['application_status'] === 'draft',
+    'active' => static fn ($r) => !in_array($r['application_status'], ['draft', 'completed', 'declined', 'closed'], true),
+    'completed' => static fn ($r) => $r['application_status'] === 'completed',
+];
+$registryCounts = registry_counts($registryRows, $registryPredicates);
+$applications = registry_category_rows($registryRows, $registryPredicates);
 ?>
 <!doctype html>
 <html lang="en">
@@ -55,7 +65,7 @@ function community_permit_status_badge(string $status): string
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -89,7 +99,8 @@ function community_permit_status_badge(string $status): string
                 <svg class="ridge-divider" viewBox="0 0 1200 20" preserveAspectRatio="none" aria-hidden="true">
                     <path d="M0 14 Q150 2 300 12 T600 10 T900 13 T1200 8" fill="none" stroke="#a9c4ac" stroke-width="2"/>
                 </svg>
-            </section>
+</section>
+            <?php render_registry_date_filter('Submission dates (drafts: last updated)'); render_registry_cards($registryCounts, ['all'=>'All applications','draft'=>'Drafts','active'=>'Active applications','completed'=>'Completed permits']); ?>
 
             <?php if (is_array($success)): ?>
                 <div class="alert alert-success" role="alert">
@@ -111,11 +122,12 @@ function community_permit_status_badge(string $status): string
                     </a>
                 </div>
 
-                <?php if ($applications === []): ?>
+                <?php render_record_visibility_tabs('permit_application'); ?>
+                    <?php if ($applications === []): ?>
                     <div class="text-center py-5">
                         <i class="bi bi-file-earmark-text fs-1 text-secondary" aria-hidden="true"></i>
-                        <h3 class="h5 mt-3">No permit applications yet</h3>
-                        <p class="text-secondary mb-3">Start a draft when you're ready with the property and tree details.</p>
+                        <h3 class="h5 mt-3">No applications in this view</h3>
+                        <p class="text-secondary mb-3">Check your other record views, or start a new draft when you're ready.</p>
                         <a href="permit-application.php" class="btn btn-certreefy">Start application</a>
                     </div>
                 <?php else: ?>
@@ -145,9 +157,11 @@ function community_permit_status_badge(string $status): string
                                     <tr>
                                         <td>
                                             <div class="fw-semibold">
+                                                <a class="record-link" data-row-link href="permit-application.php?id=<?php echo e((string) $application['id']); ?>">
                                                 <?php echo $application['transaction_id'] !== null
                                                     ? e((string) $application['transaction_id'])
                                                     : 'Draft #' . e((string) $application['id']); ?>
+                                                </a>
                                             </div>
                                             <small class="text-secondary"><?php echo $status === 'draft' ? 'Not yet submitted' : 'Submitted application'; ?></small>
                                         </td>
@@ -155,17 +169,14 @@ function community_permit_status_badge(string $status): string
                                             <?php echo $locationParts !== [] ? e(implode(', ', $locationParts)) : '<span class="text-secondary">Not yet provided</span>'; ?>
                                         </td>
                                         <td><?php echo e((string) $application['total_tree_quantity']); ?></td>
-                                        <td><span class="badge <?php echo e(community_permit_status_badge($status)); ?>"><?php echo e(permit_status_label($status)); ?></span></td>
+                                        <td><?php $completionStatus = ($application['validity_status'] ?? '') === 'expired' ? null : ($application['completion_status'] ?? null); ?><span class="badge <?php echo e(in_array($completionStatus, ['pending_ems','follow_up'], true) ? 'text-bg-info' : community_permit_status_badge($status)); ?>"><?php echo e(in_array($completionStatus, ['pending_ems','follow_up'], true) ? permit_stage_status($application)['status'] : permit_status_label($status)); ?></span></td>
                                         <td>
                                             <?php echo $activityAt
                                                 ? e(date('M j, Y g:i A', strtotime((string) $activityAt)))
                                                 : '<span class="text-secondary">Just created</span>'; ?>
                                         </td>
-                                        <td class="text-end">
-                                            <a href="permit-application.php?id=<?php echo e((string) $application['id']); ?>" class="btn btn-sm <?php echo $status === 'draft' ? 'btn-outline-primary' : 'btn-outline-secondary'; ?>">
-                                                <i class="bi <?php echo $status === 'draft' ? 'bi-pencil-square' : 'bi-eye'; ?>"></i>
-                                                <?php echo $status === 'draft' ? 'Edit' : 'View'; ?>
-                                            </a>
+                                        <td class="text-end" data-record-actions>
+                                            <?php render_record_actions('permit_application', (int) $application['id'], (string) ($application['transaction_id'] ?? 'Draft #' . $application['id'])); ?>
                                         </td>
                                     </tr>
                                 <?php endforeach; ?>
@@ -178,6 +189,5 @@ function community_permit_status_badge(string $status): string
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>

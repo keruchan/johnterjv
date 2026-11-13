@@ -117,7 +117,7 @@ try {
     // ---- Update while still a draft ----
     echo 'Update' . PHP_EOL;
     $updatedTitle = $title . ' (revised)';
-    $updated = advisory_update($pdo, $superadminId, $created['advisory_id'], ['title' => $updatedTitle, 'body' => 'Revised body text.']);
+    $updated = advisory_update($pdo, $superadminId, $created['advisory_id'], ['title' => $updatedTitle, 'body' => 'Revised body text.', 'is_public' => '1']);
     check('Superadmin can update a draft advisory', $updated['advisory_id'] === $created['advisory_id']);
     $afterUpdate = advisory_find($pdo, $created['advisory_id']);
     check('title updated', (string) $afterUpdate['title'] === $updatedTitle);
@@ -140,22 +140,17 @@ try {
 
     // ---- Invalid transitions ----
     echo 'Invalid transitions' . PHP_EOL;
-    $archiveThenPublishRejected = false;
-    // Publishing straight to archived is not a real action name, so instead
-    // verify that publish requires draft by first archiving a *different*
-    // throwaway advisory, then trying to publish it.
+    // Legacy archived announcements can be published again.
     $discardable = advisory_create($pdo, $rpsUserId, ['title' => 'Discardable ' . $suffix, 'body' => 'Never goes live.']);
     $createdAdvisoryIds[] = $discardable['advisory_id'];
     advisory_transition($pdo, $rpsUserId, $discardable['advisory_id'], 'archive', ['remarks' => 'Discarded before publishing.']);
     $discardedRow = advisory_find($pdo, $discardable['advisory_id']);
     check('draft -> archived discard shortcut works', (string) $discardedRow['current_status'] === 'archived');
 
-    try {
-        advisory_transition($pdo, $rpsUserId, $discardable['advisory_id'], 'publish');
-    } catch (AdvisoryValidationException $e) {
-        $archiveThenPublishRejected = str_contains($e->getMessage(), 'cannot become');
-    }
-    check('archived advisory cannot be published', $archiveThenPublishRejected);
+    advisory_transition($pdo, $rpsUserId, $discardable['advisory_id'], 'publish');
+    $republished = advisory_find($pdo, $discardable['advisory_id']);
+    check('legacy archived advisory can be republished', $republished['current_status'] === 'published' && $republished['archived_at'] === null);
+    advisory_transition($pdo, $rpsUserId, $discardable['advisory_id'], 'unpublish');
 
     $communityTransitionDenied = false;
     try {
@@ -171,6 +166,7 @@ try {
     check('advisory published', $published['status'] === 'published');
     $afterPublish = advisory_find($pdo, $created['advisory_id']);
     check('published_at recorded', $afterPublish['published_at'] !== null);
+    check('published public announcement appears on homepage', in_array($created['advisory_id'], array_map('intval', array_column(advisory_public_list($pdo), 'id')), true));
 
     $publishedListAfterPublish = advisory_published_list($pdo, ['q' => $suffix]);
     check(
@@ -195,10 +191,32 @@ try {
     check('an already-published advisory cannot be published again', $doublePublishRejected);
 
     // Editing remains possible after publishing (typo fix without unpublishing).
-    advisory_update($pdo, $rpsUserId, $created['advisory_id'], ['title' => $updatedTitle, 'body' => 'Corrected a typo after publishing.']);
+    advisory_update($pdo, $rpsUserId, $created['advisory_id'], ['title' => $updatedTitle, 'body' => 'Corrected a typo after publishing.', 'is_public' => '1']);
     $afterPublishedEdit = advisory_find($pdo, $created['advisory_id']);
     check('a published advisory can still be edited in place', (string) $afterPublishedEdit['body'] === 'Corrected a typo after publishing.');
     check('editing does not change its status', (string) $afterPublishedEdit['current_status'] === 'published');
+
+    // ---- Unpublish and republish ----
+    $communityUnpublishDenied = false;
+    try {
+        advisory_transition($pdo, $communityUserId, $created['advisory_id'], 'unpublish');
+    } catch (RuntimeException $e) {
+        $communityUnpublishDenied = str_contains($e->getMessage(), 'not authorized');
+    }
+    check('Community cannot unpublish', $communityUnpublishDenied);
+    advisory_transition($pdo, $superadminId, $created['advisory_id'], 'unpublish');
+    $unpublished = advisory_find($pdo, $created['advisory_id']);
+    check('unpublishing returns to draft and clears published timestamp', $unpublished['current_status'] === 'draft' && $unpublished['published_at'] === null);
+    check('unpublished announcement hidden from Community', advisory_published_list($pdo, ['q' => $suffix]) === []);
+    check('unpublished announcement hidden from public homepage', !in_array($created['advisory_id'], array_column(advisory_public_list($pdo), 'id')));
+    $notifStmt->execute([':id' => $created['advisory_id'], ':c1' => $communityUserId, ':c2' => $communityUserId2]);
+    check('unpublish sends no publication broadcast', (int) $notifStmt->fetchColumn() === 2);
+    $doubleUnpublishRejected = false;
+    try { advisory_transition($pdo, $rpsUserId, $created['advisory_id'], 'unpublish'); }
+    catch (AdvisoryValidationException $e) { $doubleUnpublishRejected = true; }
+    check('duplicate unpublish rejected', $doubleUnpublishRejected);
+    advisory_transition($pdo, $rpsUserId, $created['advisory_id'], 'publish');
+    check('unpublished announcement can be republished', advisory_find($pdo, $created['advisory_id'])['current_status'] === 'published');
 
     // ---- Archive after publishing ----
     echo 'Archive' . PHP_EOL;
@@ -211,7 +229,7 @@ try {
     echo 'History, summary, and audit' . PHP_EOL;
     $history = advisory_history($pdo, $created['advisory_id']);
     $historyStatuses = array_map(static fn (array $row): string => (string) $row['new_status'], $history);
-    check('status history records draft -> published -> archived', $historyStatuses === ['draft', 'published', 'archived']);
+    check('status history preserves unpublish and republish', $historyStatuses === ['draft', 'published', 'draft', 'published', 'archived']);
 
     $summary = advisory_summary($pdo);
     check('summary counts include the archived advisory', $summary['total'] >= 2);
@@ -220,7 +238,7 @@ try {
         'SELECT COUNT(*) FROM tbl_audit_trail WHERE category = \'advisory\' AND entity_type = \'advisory\''
         . ' AND entity_id = ' . $created['advisory_id']
     )->fetchColumn();
-    check('every mutation audited (create + 2 updates + publish + archive)', $auditCount === 5);
+    check('every mutation audited including unpublish and republish', $auditCount === 7);
 
     // ---- Rollback ----
     echo 'Rollback' . PHP_EOL;

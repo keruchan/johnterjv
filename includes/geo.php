@@ -15,6 +15,68 @@ class GeoValidationException extends RuntimeException
 /** Upper bound for stored boundary text; generous for hand-drawn polygons. */
 const CERTREEFY_BOUNDARY_GEOJSON_MAX_BYTES = 512000;
 
+/** Bundled Laguna province boundary; shared by permit maps and validation. */
+function geo_laguna_boundary(): array
+{
+    static $boundary = null;
+    if ($boundary === null) {
+        $boundary = json_decode(file_get_contents(__DIR__ . '/../assets/geo/laguna.geojson'), true, 512, JSON_THROW_ON_ERROR);
+    }
+    return $boundary;
+}
+
+/** Every map page uses the same province scope and refreshes changed scripts. */
+function geo_render_map_script(string $assetBase): void
+{
+    $boundary = json_encode(geo_laguna_boundary(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);
+    $version = (string) filemtime(__DIR__ . '/../js/geo-map.js');
+    $src = htmlspecialchars($assetBase . 'js/geo-map.js?v=' . $version, ENT_QUOTES, 'UTF-8');
+    echo '<script type="application/json" id="lagunaMapBoundary">' . $boundary . '</script>';
+    echo '<script src="' . $src . '"></script>';
+}
+
+/** Point-in-ring test, including the boundary itself. Coordinates are [lng, lat]. */
+function geo_ring_contains_point(array $ring, float $lat, float $lng): bool
+{
+    $inside = false;
+    for ($i = 0, $j = count($ring) - 1; $i < count($ring); $j = $i++) {
+        [$xi, $yi] = $ring[$i];
+        [$xj, $yj] = $ring[$j];
+        $cross = ($lng - $xi) * ($yj - $yi) - ($lat - $yi) * ($xj - $xi);
+        if (abs($cross) < 1e-12 && $lng >= min($xi, $xj) - 1e-10
+            && $lng <= max($xi, $xj) + 1e-10 && $lat >= min($yi, $yj) - 1e-10
+            && $lat <= max($yi, $yj) + 1e-10) {
+            return true;
+        }
+        if (($yi > $lat) !== ($yj > $lat)
+            && $lng < ($xj - $xi) * ($lat - $yi) / ($yj - $yi) + $xi) {
+            $inside = !$inside;
+        }
+    }
+    return $inside;
+}
+
+function geo_point_in_laguna(float $lat, float $lng): bool
+{
+    if (!is_finite($lat) || !is_finite($lng)) {
+        return false;
+    }
+    $geometry = geo_laguna_boundary()['geometry'];
+    $polygons = $geometry['type'] === 'Polygon' ? [$geometry['coordinates']] : $geometry['coordinates'];
+    foreach ($polygons as $rings) {
+        if (!geo_ring_contains_point($rings[0], $lat, $lng)) {
+            continue;
+        }
+        foreach (array_slice($rings, 1) as $hole) {
+            if (geo_ring_contains_point($hole, $lat, $lng)) {
+                continue 2;
+            }
+        }
+        return true;
+    }
+    return false;
+}
+
 /**
  * Validates a submitted boundary GeoJSON FeatureCollection.
  * Returns the normalized JSON string, or null when the input is blank.

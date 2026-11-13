@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/seedling.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'ems');
 
@@ -22,13 +23,14 @@ $filters = [
 
 try {
     $species = seedling_inventory_list($pdo);
-    $movements = seedling_stock_movement_ledger($pdo, $filters);
+    $movements = seedling_stock_movement_ledger($pdo, array_replace($filters, ['movement_type' => '', 'date_from' => '', 'date_to' => '']), 0);
 } catch (PDOException $e) {
     error_log('[CERTREEFY STOCK MOVEMENT LOAD ERROR] ' . $e->getMessage());
     http_response_code(500);
     die('Unable to load stock movement at this time. Please try again later.');
 }
 
+$movements = registry_date_rows($movements, 'created_at');
 $totalIn = 0;
 $totalOut = 0;
 foreach ($movements as $m) {
@@ -40,6 +42,10 @@ foreach ($movements as $m) {
     }
 }
 $movementTypes = seedling_movement_types();
+$movementCount = count($movements);
+$registryPredicates = ['incoming' => static fn ($r) => (int) $r['quantity_delta'] > 0, 'outgoing' => static fn ($r) => (int) $r['quantity_delta'] < 0];
+$movements = registry_category_rows($movements, $registryPredicates);
+if (in_array($filters['movement_type'], $movementTypes, true)) { $movements = array_values(array_filter($movements, static fn ($r) => $r['movement_type'] === $filters['movement_type'])); }
 ?>
 <!doctype html>
 <html lang="en">
@@ -53,7 +59,7 @@ $movementTypes = seedling_movement_types();
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -83,39 +89,40 @@ $movementTypes = seedling_movement_types();
                 </svg>
             </section>
 
+            <?php render_registry_date_filter('Stock movement dates'); ?>
             <section class="row g-3 mb-4" aria-label="Movement summary">
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card stagger-1">
+                    <a class="ledger-card summary-card stagger-1" <?php echo registry_card_attributes('all'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-list-ul"></i></span><span class="ledger-tag">Entries</span></div>
-                        <div class="ledger-value tabular"><?php echo count($movements); ?></div>
+                        <div class="ledger-value tabular"><?php echo $movementCount; ?></div>
                         <div class="ledger-caption">Movements shown</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-teal stagger-2">
+                    <a class="ledger-card summary-card accent-teal stagger-2" <?php echo registry_card_attributes('incoming'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-arrow-down-circle"></i></span><span class="ledger-tag">In</span></div>
                         <div class="ledger-value tabular">+<?php echo (int) $totalIn; ?></div>
                         <div class="ledger-caption">Seedlings added</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-rust stagger-3">
+                    <a class="ledger-card summary-card accent-rust stagger-3" <?php echo registry_card_attributes('outgoing'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-arrow-up-circle"></i></span><span class="ledger-tag">Out</span></div>
                         <div class="ledger-value tabular">-<?php echo (int) $totalOut; ?></div>
                         <div class="ledger-caption">Seedlings released</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-amber stagger-4">
+                    <a class="ledger-card summary-card accent-amber stagger-4" <?php echo registry_card_attributes('net'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-arrow-left-right"></i></span><span class="ledger-tag">Net</span></div>
                         <div class="ledger-value tabular"><?php echo (int) ($totalIn - $totalOut); ?></div>
                         <div class="ledger-caption">Net change (shown)</div>
-                    </div>
+                        </a>
                 </div>
             </section>
 
             <section class="docket-panel mb-4" aria-label="Movement filters">
-                <form method="get" action="stock-movement.php" class="row g-3 align-items-end">
+                <form method="get" action="stock-movement.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <div class="col-sm-6 col-lg-3">
                         <label for="speciesFilter" class="form-label">Species</label>
                         <select class="form-select" id="speciesFilter" name="inventory_id">
@@ -134,14 +141,8 @@ $movementTypes = seedling_movement_types();
                             <?php endforeach; ?>
                         </select>
                     </div>
-                    <div class="col-sm-6 col-lg-2">
-                        <label for="dateFrom" class="form-label">From</label>
-                        <input type="date" class="form-control" id="dateFrom" name="date_from" value="<?php echo e($filters['date_from']); ?>">
-                    </div>
-                    <div class="col-sm-6 col-lg-2">
-                        <label for="dateTo" class="form-label">To</label>
-                        <input type="date" class="form-control" id="dateTo" name="date_to" value="<?php echo e($filters['date_to']); ?>">
-                    </div>
+
+
                     <div class="col-lg-2 d-flex gap-2">
                         <button type="submit" class="btn btn-certreefy flex-grow-1"><i class="bi bi-funnel me-1"></i>Filter</button>
                         <a class="btn btn-outline-secondary" href="stock-movement.php" title="Clear filters" aria-label="Clear filters"><i class="bi bi-x-lg"></i></a>
@@ -206,6 +207,5 @@ $movementTypes = seedling_movement_types();
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>

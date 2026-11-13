@@ -19,6 +19,8 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/seedling.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/seedling_distribution.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'ems');
 
@@ -26,11 +28,18 @@ $currentRole = (string) $_SESSION['role'];
 $displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'EMS User';
 
 try {
-    $seedlingSummary = seedling_inventory_summary($pdo);
-    $releasedThisMonth = (int) $pdo->query(
-        "SELECT COALESCE(SUM(-quantity_delta), 0) FROM tbl_seedling_stock_movements
-         WHERE movement_type = 'released' AND created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')"
-    )->fetchColumn();
+    $visibleInventory = record_visibility_filter($pdo, seedling_inventory_list($pdo, true), 'seedling_inventory');
+    $datedRequests = registry_date_rows(record_visibility_filter($pdo, seedling_requests_for_ems($pdo), 'seedling_request'), 'submitted_at');
+    $seedlingSummary = [
+        'total_available'=>array_sum(array_column($visibleInventory, 'available_quantity')),
+        'low_stock_species'=>count(array_filter($visibleInventory, static fn ($r) => (int) $r['available_quantity'] <= (int) $r['low_stock_threshold'])),
+        'pending_requests'=>count(array_filter($datedRequests, registry_request_predicates()['pending'])),
+    ];
+    $releaseRange = registry_range();
+    $releaseRange['from'] = max($releaseRange['from'], date('Y-m-01'));
+    $releaseRange['to'] = $releaseRange['to'] === '' ? date('Y-m-d') : min($releaseRange['to'], date('Y-m-d'));
+    $releaseRows = registry_date_rows(seedling_stock_movement_ledger($pdo, ['movement_type'=>'released'], 0), 'created_at', $releaseRange);
+    $releasedThisMonth = -array_sum(array_column($releaseRows, 'quantity_delta'));
     $incomingCount = (int) $pdo->query(
         "SELECT COUNT(*) FROM tbl_seedling_stock_movements
          WHERE movement_type = 'incoming' AND DATE(created_at) = CURDATE()"
@@ -46,6 +55,7 @@ try {
     $incomingCount = 0;
     $releasedTodayCount = 0;
 }
+$releaseRange ??= ['from'=>date('Y-m-01'), 'to'=>date('Y-m-d')];
 ?>
 <!doctype html>
 <html lang="en">
@@ -60,7 +70,7 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
 
-        <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+        <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -95,46 +105,48 @@ try {
                 </svg>
             </section>
 
+            <?php render_registry_date_filter('Request submission and stock movement dates', 'Stock figures show current balances; releases stay within this month.'); ?>
+            <?php render_seedling_annual_target($pdo); ?>
             <section class="row g-3 mb-5" aria-label="EMS dashboard metrics">
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card stagger-1">
+                    <a class="ledger-card summary-card stagger-1" <?php echo registry_card_attributes('available', ['date_from'=>null,'date_to'=>null], 'seedling-inventory.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-box-seam"></i></span>
                             <span class="ledger-tag">Inventory</span>
                         </div>
                         <div class="ledger-value tabular"><?php echo (int) $seedlingSummary['total_available']; ?></div>
                         <div class="ledger-caption">Available seedlings</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-amber stagger-2">
+                    <a class="ledger-card summary-card accent-amber stagger-2" <?php echo registry_card_attributes('pending', [], 'seedling-requests.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-hourglass-split"></i></span>
                             <span class="ledger-tag">Requests</span>
                         </div>
                         <div class="ledger-value tabular"><?php echo (int) $seedlingSummary['pending_requests']; ?></div>
                         <div class="ledger-caption">Pending seedling requests</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-teal stagger-3">
+                    <a class="ledger-card summary-card accent-teal stagger-3" <?php echo registry_card_attributes('outgoing', ['date_from'=>$releaseRange['from'],'date_to'=>$releaseRange['to'], 'movement_type'=>'released'], 'stock-movement.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-clipboard-check"></i></span>
                             <span class="ledger-tag">Release</span>
                         </div>
                         <div class="ledger-value tabular"><?php echo (int) $releasedThisMonth; ?></div>
                         <div class="ledger-caption">Released this month</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-rust stagger-4">
+                    <a class="ledger-card summary-card accent-rust stagger-4" <?php echo registry_card_attributes('low', ['date_from'=>null,'date_to'=>null], 'seedling-inventory.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-exclamation-triangle"></i></span>
                             <span class="ledger-tag">Alerts</span>
                         </div>
                         <div class="ledger-value tabular"><?php echo (int) $seedlingSummary['low_stock_species']; ?></div>
                         <div class="ledger-caption">Low stock items</div>
-                    </div>
+                        </a>
                 </div>
             </section>
 

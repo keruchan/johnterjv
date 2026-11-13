@@ -5,8 +5,12 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/seedling.php';
+require_once __DIR__ . '/../../includes/seedling_recommendations.php';
 require_once __DIR__ . '/../../includes/planting_sites.php';
+require_once __DIR__ . '/../../includes/locations.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/seedling_distribution.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'community');
 
@@ -27,16 +31,21 @@ if (!empty($_SESSION['seedling_request_submit_flash']) && is_array($_SESSION['se
 }
 
 try {
-    $availableSpecies = seedling_inventory_list($pdo, true);
+    $availableSpecies = seedling_request_recommendations($pdo, seedling_inventory_list($pdo, true));
     $myRequests = seedling_requests_for_requester($pdo, $userId);
-    $plantingRecommendations = planting_site_recommendations($pdo);
-    $plantingSiteFeatures = planting_site_map_features($pdo);
+    $myRequests = record_visibility_filter($pdo, $myRequests, 'seedling_request');
+    $plantingRecommendations = array_values(array_filter(planting_site_recommendations($pdo),static fn($site)=>strcasecmp((string)$site['province'],'Laguna')===0 && laguna_validate_location((string)$site['municipality'],(string)$site['barangay'])===[]));
+    $recommendedIds=array_column($plantingRecommendations,'id');
+    $plantingSiteFeatures = array_values(array_filter(planting_site_map_features($pdo),static fn($feature)=>in_array($feature['id'],$recommendedIds,true)));
 } catch (PDOException $e) {
     error_log('[CERTREEFY SEEDLING REQUEST PAGE ERROR] ' . $e->getMessage());
     http_response_code(500);
     die('Unable to load the seedling request program at this time. Please try again later.');
 }
-$cap = seedling_max_per_request();
+$registryRows = registry_date_rows($myRequests, 'submitted_at');
+$registryPredicates = registry_request_predicates();
+$registryCounts = registry_counts($registryRows, $registryPredicates);
+$myRequests = registry_category_rows($registryRows, $registryPredicates);
 ?>
 <!doctype html>
 <html lang="en">
@@ -51,7 +60,7 @@ $cap = seedling_max_per_request();
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -66,7 +75,7 @@ $cap = seedling_max_per_request();
                     <div>
                         <div class="eyebrow">Client</div>
                         <h1 class="page-title">Seedling Request</h1>
-                        <p class="text-secondary meta-copy mb-0">Request free seedlings for planting. Up to <?php echo $cap; ?> seedlings per request.</p>
+                        <p class="text-secondary meta-copy mb-0">Request seedlings for planting. Approval and release depend on available stock.</p>
                     </div>
                     <div class="d-flex align-items-center gap-2">
                         <?php render_certreefy_notification_bell('header'); ?><span class="officer-chip"><span class="avatar-dot"><?php echo e(strtoupper(substr($displayName, 0, 1))); ?></span><?php echo e($displayName); ?></span>
@@ -79,7 +88,8 @@ $cap = seedling_max_per_request();
                 <svg class="ridge-divider" viewBox="0 0 1200 20" preserveAspectRatio="none" aria-hidden="true">
                     <path d="M0 14 Q150 2 300 12 T600 10 T900 13 T1200 8" fill="none" stroke="#a9c4ac" stroke-width="2"/>
                 </svg>
-            </section>
+</section>
+            <?php render_registry_date_filter('Request submission dates'); render_registry_cards($registryCounts, ['all'=>'All requests','pending'=>'Pending requests','ready'=>'Ready for pickup','claimed'=>'Claimed requests']); ?>
 
             <?php if ($flash !== null): ?>
                 <div class="alert alert-<?php echo e((string) $flash['type']); ?> alert-dismissible fade show" role="alert">
@@ -90,6 +100,8 @@ $cap = seedling_max_per_request();
 
             <section class="docket-panel mb-4" aria-labelledby="newRequestHeading">
                 <div class="section-heading"><h2 id="newRequestHeading">Request Seedlings</h2></div>
+                <div class="alert alert-light border" role="note"><strong>Eligibility and Request Terms</strong><ul class="small mb-0"><li>Active Client accounts can submit requests.</li><li>Provide accurate planting details and the quantity needed for each species.</li><li>EMS reviews quantities against stock availability. Wait for pickup instructions before collecting seedlings.</li><li>You may cancel a request before approval.</li></ul></div>
+                <p class="small text-secondary">Species with the latest estimated run-out dates appear first. Estimates depend on recent releases and may change.</p>
 
                 <?php if ($availableSpecies === []): ?>
                     <div class="alert alert-light border mb-0"><i class="bi bi-info-circle me-1"></i>No species available right now — check back later.</div>
@@ -107,6 +119,8 @@ $cap = seedling_max_per_request();
                             <label class="form-label" for="plantingLocation">Planting location</label>
                             <input class="form-control" id="plantingLocation" type="text" name="planting_location" maxlength="500" placeholder="e.g. Barangay, municipality" required>
                         </div>
+                        <div class="col-12"><?php render_laguna_location_fields([],['province'=>'planting_province','municipality'=>'planting_municipality','barangay'=>'planting_barangay']); ?></div>
+                        <div class="col-md-4"><label class="form-label" for="requestPlantingSite">Planting site (optional)</label><select class="form-select" id="requestPlantingSite" name="planting_site_id"><option value="">Enter another planting location</option><?php foreach ($plantingRecommendations as $site): ?><option value="<?php echo (int)$site['id']; ?>" data-barangay="<?php echo e((string)($site['barangay'] ?? '')); ?>" data-municipality="<?php echo e((string)($site['municipality'] ?? '')); ?>"><?php echo e($site['site_name']); ?></option><?php endforeach; ?></select></div>
                         <div class="col-md-4">
                             <label class="form-label" for="preferredPickupDate">Preferred pickup date (optional)</label>
                             <input class="form-control" id="preferredPickupDate" type="date" name="preferred_pickup_date" min="<?php echo e(date('Y-m-d')); ?>">
@@ -123,22 +137,22 @@ $cap = seedling_max_per_request();
                                         <select class="form-select" name="inventory_id[]" required>
                                             <option value="">Select species</option>
                                             <?php foreach ($availableSpecies as $species): ?>
-                                                <option value="<?php echo (int) $species['id']; ?>"><?php echo e((string) $species['common_name']); ?> (<?php echo (int) $species['available_quantity']; ?> available)</option>
+                                                <option value="<?php echo (int) $species['id']; ?>"><?php echo e((string) $species['common_name']); ?> (<?php echo (int) $species['available_quantity']; ?> available<?php echo $species['depletion_date'] !== null ? '; estimated run-out ' . e($species['depletion_date']) : '; no recent release estimate'; ?>)</option>
                                             <?php endforeach; ?>
                                         </select>
                                     </div>
                                     <div class="col-md-4">
-                                        <input class="form-control" type="number" name="quantity[]" min="1" max="<?php echo $cap; ?>" placeholder="Quantity" required>
+                                        <input class="form-control" type="number" name="quantity[]" min="1" step="1" placeholder="Quantity" required>
                                     </div>
                                     <div class="col-md-2">
                                         <button type="button" class="btn btn-outline-danger w-100 remove-species-row" aria-label="Remove species row" disabled><i class="bi bi-trash"></i></button>
                                     </div>
                                 </div>
                             </div>
-                            <div class="form-text">Total across all species may not exceed <?php echo $cap; ?> seedlings.</div>
+                            <div class="form-text">Enter the quantity needed for each species. EMS reviews requests against available stock.</div>
                         </div>
 
-                        <div class="col-12"><button class="btn btn-certreefy" type="submit"><i class="bi bi-send"></i> Submit request</button></div>
+                        <div class="col-12"><button class="btn btn-certreefy" type="submit"><i class="bi bi-send" aria-hidden="true"></i> Submit request</button></div>
                     </form>
                 <?php endif; ?>
             </section>
@@ -189,7 +203,8 @@ $cap = seedling_max_per_request();
                     <h2 id="myRequestsHeading">My Seedling Requests</h2>
                     <span class="section-note tabular"><?php echo count($myRequests); ?> request<?php echo count($myRequests) === 1 ? '' : 's'; ?></span>
                 </div>
-                <div class="table-responsive">
+                <?php render_record_visibility_tabs('seedling_request'); ?>
+                    <div class="table-responsive">
                     <table class="table align-middle mb-0" data-table-tools data-tt-search-placeholder="Search reference">
                         <thead>
                             <tr>
@@ -211,7 +226,7 @@ $cap = seedling_max_per_request();
                                     <td class="tabular"><?php echo (int) $myRequest['total_requested']; ?> / <?php echo (int) $myRequest['total_approved']; ?></td>
                                     <td><span class="badge <?php echo e(seedling_request_status_badge($myStatus)); ?>"><?php echo e(seedling_request_status_label($myStatus)); ?></span></td>
                                     <td class="small text-nowrap"><?php echo e(date('M j, Y', strtotime((string) $myRequest['submitted_at']))); ?></td>
-                                    <td class="text-end">
+                                    <td class="text-end" data-record-actions>
                                         <?php if (in_array($myStatus, ['submitted', 'under_review'], true)): ?>
                                             <form method="post" action="seedling-request-action.php" class="d-inline" onsubmit="return confirm('Withdraw this seedling request?');">
                                                 <input type="hidden" name="csrf_token" value="<?php echo e($csrfToken); ?>">
@@ -224,6 +239,7 @@ $cap = seedling_max_per_request();
                                         <?php else: ?>
                                             <span class="small text-secondary">-</span>
                                         <?php endif; ?>
+                                        <?php render_record_actions('seedling_request', (int) $myRequest['id'], (string) $myRequest['request_reference']); ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -231,6 +247,7 @@ $cap = seedling_max_per_request();
                     </table>
                 </div>
             </section>
+            <?php render_seedling_distribution($pdo); ?>
         </main>
     </div>
 
@@ -238,9 +255,9 @@ $cap = seedling_max_per_request();
         <script type="application/json" id="plantingSiteData"><?php echo json_encode($plantingSiteFeatures, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?></script>
     <?php endif; ?>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <?php geo_render_map_script('../../'); ?>
     <?php if ($plantingRecommendations !== []): ?>
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        <script src="../../js/geo-map.js"></script>
         <script>
             (function () {
                 var sites = CertreefyGeo.readJson('plantingSiteData', []);
@@ -258,6 +275,12 @@ $cap = seedling_max_per_request();
     <?php endif; ?>
     <script>
         (function () {
+            const site = document.getElementById('requestPlantingSite');
+            site?.addEventListener('change', () => {
+                const option = site.selectedOptions[0];
+                if (!site.value) return;
+                document.querySelector('[data-location-group]').dispatchEvent(new CustomEvent('location:set',{detail:{barangay:option.dataset.barangay||'',municipality:option.dataset.municipality||''}}));
+            });
             const rows = document.getElementById('species-rows');
             const addButton = document.getElementById('add-species-row');
             if (!rows || !addButton) { return; }
@@ -290,6 +313,6 @@ $cap = seedling_max_per_request();
             refreshRemoveButtons();
         })();
     </script>
-    <script src="../../js/table-tools.js"></script>
+<?php render_location_script(); ?>
 </body>
 </html>

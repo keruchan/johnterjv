@@ -12,6 +12,7 @@ require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/planting_sites.php';
 require_once __DIR__ . '/../../includes/seedling.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'ems');
 
@@ -41,6 +42,7 @@ $filters = ['q' => substr(trim((string) ($_GET['q'] ?? '')), 0, 100)];
 
 try {
     $sites = planting_site_list($pdo, $filters);
+    $sites = record_visibility_filter($pdo, $sites, 'planting_site');
     $siteMapFeatures = planting_site_map_features($pdo);
     $activeCount = count(array_filter($sites, static fn (array $s): bool => (int) $s['is_active'] === 1));
     $inventorySpeciesNames = array_values(array_map(
@@ -52,6 +54,11 @@ try {
     http_response_code(500);
     die('Unable to load planting sites at this time. Please try again later.');
 }
+$registryRows = registry_date_rows($sites, 'created_at');
+$registryPredicates = ['active'=>static fn ($r) => (int) $r['is_active'] === 1, 'inactive'=>static fn ($r) => (int) $r['is_active'] !== 1];
+$registryCounts = registry_counts($registryRows, $registryPredicates);
+$sites = registry_category_rows($registryRows, $registryPredicates);
+$activeCount = $registryCounts['active'];
 ?>
 <!doctype html>
 <html lang="en">
@@ -67,7 +74,7 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.css">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -96,6 +103,7 @@ try {
                     <path d="M0 14 Q150 2 300 12 T600 10 T900 13 T1200 8" fill="none" stroke="#a9c4ac" stroke-width="2"/>
                 </svg>
             </section>
+            <?php render_registry_date_filter('Site registration dates'); render_registry_cards($registryCounts, ['all'=>'Planting sites','active'=>'Active sites','inactive'=>'Inactive sites']); ?>
 
             <?php if ($flash !== null): ?>
                 <div class="alert alert-<?php echo e((string) $flash['type']); ?> alert-dismissible fade show" role="alert">
@@ -166,7 +174,7 @@ try {
             </section>
 
             <section class="docket-panel mb-4" aria-label="Planting site search">
-                <form method="get" action="planting-sites.php" class="row g-3 align-items-end">
+<form method="get" action="planting-sites.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <div class="col-lg-9">
                         <label for="siteSearch" class="form-label">Search</label>
                         <div class="input-group">
@@ -179,14 +187,15 @@ try {
                         <a class="btn btn-outline-secondary" href="planting-sites.php" title="Clear search" aria-label="Clear search"><i class="bi bi-x-lg"></i></a>
                     </div>
                 </form>
-            </section>
+</section>
 
             <section class="docket-panel" aria-labelledby="siteRegistryHeading">
                 <div class="section-heading">
                     <h2 id="siteRegistryHeading">Planting Site Registry</h2>
                     <span class="section-note tabular"><?php echo count($sites); ?> site<?php echo count($sites) === 1 ? '' : 's'; ?></span>
                 </div>
-                <div class="table-responsive">
+                <?php render_record_visibility_tabs('planting_site'); ?>
+                    <div class="table-responsive">
                     <table class="table align-middle mb-0" data-table-tools data-tt-search="false">
                         <thead>
                             <tr>
@@ -225,8 +234,8 @@ try {
                                     <td class="small text-secondary text-break"><?php echo $site['recommended_season'] !== null ? e((string) $site['recommended_season']) : '-'; ?></td>
                                     <td class="small text-secondary text-break"><?php echo $site['suitable_species'] !== null ? e((string) $site['suitable_species']) : '-'; ?></td>
                                     <td><?php echo (int) $site['is_active'] === 1 ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Inactive</span>'; ?></td>
-                                    <td class="text-end">
-                                        <button class="btn btn-sm btn-outline-primary edit-site-action" type="button" data-bs-toggle="modal" data-bs-target="#editSiteModal"
+                                    <td class="text-end" data-record-actions>
+                                        <button class="btn btn-sm btn-outline-primary edit-site-action" data-row-trigger type="button" data-bs-toggle="modal" data-bs-target="#editSiteModal"
                                             data-site-id="<?php echo (int) $site['id']; ?>"
                                             data-site-name="<?php echo e((string) $site['site_name']); ?>"
                                             data-province="<?php echo e((string) ($site['province'] ?? '')); ?>"
@@ -241,6 +250,7 @@ try {
                                             data-source="<?php echo e((string) ($site['data_source'] ?? '')); ?>"
                                             data-is-active="<?php echo (int) $site['is_active']; ?>"
                                         ><i class="bi bi-pencil"></i> Edit</button>
+                                        <?php render_record_actions('planting_site', (int) $site['id'], (string) $site['site_name']); ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -330,7 +340,7 @@ try {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.min.js"></script>
-    <script src="../../js/geo-map.js"></script>
+    <?php geo_render_map_script('../../'); ?>
     <script>
         var siteFeatures = CertreefyGeo.readJson('siteMapData', []);
         var siteBoundaries = CertreefyGeo.readJson('siteBoundaryData', {});
@@ -537,6 +547,5 @@ try {
             }
         });
     </script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>

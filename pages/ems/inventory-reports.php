@@ -11,6 +11,8 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/analytics.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/seedling_distribution.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'ems');
 
@@ -23,7 +25,7 @@ if (inventory_reports_actor($pdo, $userId) === null) {
     die('You are not authorized to view inventory reports.');
 }
 
-$range = analytics_normalize_range($_GET);
+$range = registry_range();
 $rangeQuery = array_filter(['date_from' => $range['from'], 'date_to' => $range['to']]);
 
 try {
@@ -110,7 +112,7 @@ function inventory_depletion_status(array $species, array $forecast): array
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -140,55 +142,41 @@ function inventory_depletion_status(array $species, array $forecast): array
                 </svg>
             </section>
 
+            <?php render_registry_date_filter('Stock movement dates', 'On-hand stock and species figures show current balances.'); ?>
+            <?php render_seedling_annual_target($pdo); ?>
             <section class="row g-3 mb-4" aria-label="Inventory summary">
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card stagger-1">
+                    <a class="ledger-card summary-card stagger-1" <?php echo registry_card_attributes('available', ['date_from'=>null,'date_to'=>null], 'seedling-inventory.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-box-seam"></i></span><span class="ledger-tag">Stock</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $snapshot['total_stock']; ?></div>
                         <div class="ledger-caption">Seedlings on hand</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-teal stagger-2">
+                    <a class="ledger-card summary-card accent-teal stagger-2" <?php echo registry_card_attributes('active', ['date_from'=>null,'date_to'=>null], 'seedling-inventory.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-diagram-3"></i></span><span class="ledger-tag">Species</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $snapshot['active_species']; ?></div>
                         <div class="ledger-caption"><?php echo (int) $snapshot['total_species']; ?> total species</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-amber stagger-3">
+                    <a class="ledger-card summary-card accent-amber stagger-3" <?php echo registry_card_attributes('low', ['date_from'=>null,'date_to'=>null], 'seedling-inventory.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-exclamation-triangle"></i></span><span class="ledger-tag">Low stock</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $snapshot['low_stock_count']; ?></div>
                         <div class="ledger-caption">Species at/below threshold</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-rust stagger-4">
+                    <a class="ledger-card summary-card accent-rust stagger-4" <?php echo registry_card_attributes('net', [], 'stock-movement.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-arrow-left-right"></i></span><span class="ledger-tag">Net</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $movements['net_delta']; ?></div>
                         <div class="ledger-caption">Net change in period</div>
-                    </div>
+                        </a>
                 </div>
             </section>
 
-            <section class="docket-panel mb-4" aria-label="Report period">
-                <form method="get" action="inventory-reports.php" class="row g-3 align-items-end">
-                    <div class="col-sm-6 col-lg-3">
-                        <label for="dateFrom" class="form-label">Movements from</label>
-                        <input type="date" class="form-control" id="dateFrom" name="date_from" value="<?php echo e($range['from']); ?>">
-                    </div>
-                    <div class="col-sm-6 col-lg-3">
-                        <label for="dateTo" class="form-label">Movements to</label>
-                        <input type="date" class="form-control" id="dateTo" name="date_to" value="<?php echo e($range['to']); ?>">
-                    </div>
-                    <div class="col-lg-6 d-flex gap-2">
-                        <button type="submit" class="btn btn-certreefy"><i class="bi bi-funnel me-1"></i>Apply period</button>
-                        <a class="btn btn-outline-secondary" href="inventory-reports.php"><i class="bi bi-x-lg me-1"></i>Clear</a>
-                        <a class="btn btn-outline-success ms-auto" href="inventory-reports-export.php<?php echo $rangeQuery === [] ? '' : ('?' . e(http_build_query($rangeQuery))); ?>"><i class="bi bi-download me-1"></i>Export CSV</a>
-                    </div>
-                </form>
-                <p class="small text-secondary mt-2 mb-0">Tables follow the selected period. Forecasts use the last 90 days; the trend uses the trailing 12 months.</p>
-            </section>
+<div class="d-flex justify-content-end mb-3"><a class="btn btn-outline-success ms-auto" href="inventory-reports-export.php<?php echo $rangeQuery === [] ? '' : ('?' . e(http_build_query($rangeQuery))); ?>"><i class="bi bi-download me-1"></i>Export CSV</a></div>
+            <p class="small text-secondary mt-2 mb-0">Tables follow the selected period. Forecasts use the last 90 days; the trend uses the trailing 12 months.</p>
 
             <ul class="nav analytics-tabs mb-3" role="tablist">
                 <li class="nav-item" role="presentation">
@@ -477,6 +465,5 @@ function inventory_depletion_status(array $species, array $forecast): array
             });
         });
     </script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>

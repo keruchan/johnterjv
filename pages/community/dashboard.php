@@ -18,8 +18,11 @@ require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/seedling.php';
+require_once __DIR__ . '/../../includes/permit.php';
+require_once __DIR__ . '/../../includes/illegal_logging.php';
 require_once __DIR__ . '/../../includes/permit_workflow.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'community');
 
@@ -29,37 +32,13 @@ $displayName = !empty($_SESSION['name']) ? (string) $_SESSION['name'] : 'Client 
 $todayLabel = date('l, F j, Y');
 
 try {
-    $activeSeedlingStmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM tbl_seedling_requests
-         WHERE requester_user_id = :requester
-           AND current_status IN ('submitted', 'under_review', 'approved', 'ready_for_pickup')"
-    );
-    $activeSeedlingStmt->execute([':requester' => $userId]);
-    $activeSeedlingRequests = (int) $activeSeedlingStmt->fetchColumn();
-
-    $activeIncidentStmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM tbl_illegal_logging_reports
-         WHERE reporter_user_id = :reporter AND current_status <> 'resolved'"
-    );
-    $activeIncidentStmt->execute([':reporter' => $userId]);
-    $activeIncidentReports = (int) $activeIncidentStmt->fetchColumn();
-
-    // Tree cutting permit application activity for this owner (drafts excluded
-    // from "active"; anything not yet in a terminal state counts as in progress).
-    $activeAppStmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM tbl_permit_applications
-         WHERE applicant_user_id = :uid
-           AND application_status NOT IN ('draft', 'completed', 'declined', 'closed')"
-    );
-    $activeAppStmt->execute([':uid' => $userId]);
-    $activeApplications = (int) $activeAppStmt->fetchColumn();
-
-    $completedAppStmt = $pdo->prepare(
-        "SELECT COUNT(*) FROM tbl_permit_applications
-         WHERE applicant_user_id = :uid AND application_status = 'completed'"
-    );
-    $completedAppStmt->execute([':uid' => $userId]);
-    $completedApplications = (int) $completedAppStmt->fetchColumn();
+    $requests = registry_date_rows(record_visibility_filter($pdo, seedling_requests_for_requester($pdo, $userId), 'seedling_request'), 'submitted_at');
+    $reports = registry_date_rows(record_visibility_filter($pdo, illegal_logging_reports_for_reporter($pdo, $userId), 'illegal_logging_report'), 'submitted_at');
+    $apps = registry_date_rows(record_visibility_filter($pdo, permit_list_applications_for_owner($pdo, $userId), 'permit_application'), static fn ($r) => $r['submitted_at'] ?: $r['updated_at']);
+    $activeSeedlingRequests = count(array_filter($requests, registry_request_predicates()['active']));
+    $activeIncidentReports = count(array_filter($reports, registry_report_predicates()['active']));
+    $activeApplications = count(array_filter($apps, static fn ($r) => !in_array($r['application_status'], ['draft', 'completed', 'declined', 'closed'], true)));
+    $completedApplications = count(array_filter($apps, static fn ($r) => $r['application_status'] === 'completed'));
 
     // Latest submitted application, so the dashboard can surface its current
     // status and deep-link to the full application-status view.
@@ -103,7 +82,7 @@ $communityAppStatusBadge = static function (string $status): string {
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -139,46 +118,47 @@ $communityAppStatusBadge = static function (string $status): string {
                 </svg>
             </section>
 
+            <?php render_registry_date_filter('Application, request and report submission dates'); ?>
             <section class="row g-3 mb-5" aria-label="Client dashboard metrics">
                 <div class="col-sm-6 col-xl-3">
-                    <a class="ledger-card stagger-1 d-block text-reset text-decoration-none" href="permit-applications.php#applications">
+                    <a class="ledger-card summary-card stagger-1 d-block text-reset text-decoration-none" <?php echo registry_card_attributes('active', [], 'permit-applications.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-hourglass-split"></i></span>
                             <span class="ledger-tag">Active</span>
                         </div>
                         <div class="ledger-value tabular"><?php echo (int) $activeApplications; ?></div>
                         <div class="ledger-caption">Active applications <i class="bi bi-arrow-right ms-1 small"></i></div>
-                    </a>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <a class="ledger-card accent-teal stagger-2 d-block text-reset text-decoration-none" href="permit-applications.php#applications">
+                    <a class="ledger-card summary-card accent-teal stagger-2 d-block text-reset text-decoration-none" <?php echo registry_card_attributes('completed', [], 'permit-applications.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-check2-circle"></i></span>
                             <span class="ledger-tag">History</span>
                         </div>
                         <div class="ledger-value tabular"><?php echo (int) $completedApplications; ?></div>
                         <div class="ledger-caption">Completed permits <i class="bi bi-arrow-right ms-1 small"></i></div>
-                    </a>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-amber stagger-3">
+                    <a class="ledger-card summary-card accent-amber stagger-3" <?php echo registry_card_attributes('active', [], 'seedling-requests.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-flower1"></i></span>
                             <span class="ledger-tag">Seedlings</span>
                         </div>
                         <div class="ledger-value tabular"><?php echo (int) $activeSeedlingRequests; ?></div>
                         <div class="ledger-caption">Seedling requests</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-rust stagger-4">
+                    <a class="ledger-card summary-card accent-rust stagger-4" <?php echo registry_card_attributes('active', [], 'illegal-logging-reports.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start">
                             <span class="ledger-icon"><i class="bi bi-exclamation-triangle"></i></span>
                             <span class="ledger-tag">Reports</span>
                         </div>
                         <div class="ledger-value tabular"><?php echo (int) $activeIncidentReports; ?></div>
                         <div class="ledger-caption">Incident reports</div>
-                    </div>
+                        </a>
                 </div>
             </section>
 

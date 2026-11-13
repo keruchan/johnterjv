@@ -198,6 +198,13 @@ function permit_matrix_replacement_rule(string $categoryKey, string $treeOrigin)
 // Statutory fees
 // ---------------------------------------------------------------------------
 
+/** Numeric form of the existing matrix ratio, used by validated tally imports. */
+function permit_matrix_replacement_ratio(string $category, string $origin): ?int
+{
+    $rule = permit_matrix_replacement_rule($category, $origin);
+    return $rule !== null && preg_match('/^1:([0-9]+)\s/', $rule, $match) ? (int)$match[1] : null;
+}
+
 /**
  * Assessed fees for an application. Inventory fee is charged per hectare and
  * does not apply to NGA permits.

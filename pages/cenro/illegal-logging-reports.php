@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/illegal_logging.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_roles($pdo, ['rps', 'superadmin']);
 
@@ -26,11 +27,16 @@ $filters = [
 
 try {
     $reports = illegal_logging_reports_for_processors($pdo, $filters);
+    $reports = record_visibility_filter($pdo, $reports, 'illegal_logging_report');
 } catch (PDOException $e) {
     error_log('[CERTREEFY ILLEGAL LOGGING QUEUE ERROR] ' . $e->getMessage());
     http_response_code(500);
     die('Unable to load illegal-logging reports at this time. Please try again later.');
 }
+$registryRows = registry_date_rows($reports, 'submitted_at');
+$registryPredicates = registry_report_predicates();
+$registryCounts = registry_counts($registryRows, $registryPredicates);
+$reports = registry_category_rows($registryRows, $registryPredicates);
 ?>
 <!doctype html>
 <html lang="en">
@@ -44,7 +50,7 @@ try {
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -73,9 +79,10 @@ try {
                     <path d="M0 14 Q150 2 300 12 T600 10 T900 13 T1200 8" fill="none" stroke="#a9c4ac" stroke-width="2"/>
                 </svg>
             </section>
+            <?php render_registry_date_filter('Report submission dates'); render_registry_cards($registryCounts, ['all'=>'All reports','review'=>'For review','field'=>'Field verification','resolved'=>'Resolved reports']); ?>
 
             <section class="docket-panel mb-4" aria-label="Report filters">
-                <form method="get" action="illegal-logging-reports.php" class="row g-3 align-items-end">
+<form method="get" action="illegal-logging-reports.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <div class="col-lg-6">
                         <label for="reportSearch" class="form-label">Search</label>
                         <div class="input-group">
@@ -97,14 +104,15 @@ try {
                         <a class="btn btn-outline-secondary" href="illegal-logging-reports.php" title="Clear filters" aria-label="Clear filters"><i class="bi bi-x-lg"></i></a>
                     </div>
                 </form>
-            </section>
+</section>
 
             <section class="docket-panel" aria-labelledby="reportQueueHeading">
                 <div class="section-heading">
                     <h2 id="reportQueueHeading">Report Queue</h2>
                     <span class="section-note tabular"><?php echo count($reports); ?> report<?php echo count($reports) === 1 ? '' : 's'; ?></span>
                 </div>
-                <div class="table-responsive">
+                <?php render_record_visibility_tabs('illegal_logging_report'); ?>
+                    <div class="table-responsive">
                     <table class="table align-middle mb-0" data-table-tools data-tt-search="false">
                         <thead>
                             <tr>
@@ -123,13 +131,13 @@ try {
                             <?php endif; ?>
                             <?php foreach ($reports as $report): ?>
                                 <tr>
-                                    <td class="fw-semibold text-break"><?php echo e((string) $report['report_reference']); ?></td>
+                                    <td class="fw-semibold text-break"><a class="record-link" data-row-link href="illegal-logging-report-detail.php?id=<?php echo (int) $report['id']; ?>"><?php echo e((string) $report['report_reference']); ?></a></td>
                                     <td><?php echo e((string) $report['reporter_name']); ?></td>
                                     <td class="text-break"><?php echo e((string) $report['incident_location']); ?></td>
                                     <td class="tabular"><?php echo (int) $report['photo_count']; ?> photo(s)</td>
                                     <td><span class="badge <?php echo e(illegal_logging_report_status_badge((string) $report['current_status'])); ?>"><?php echo e(illegal_logging_report_status_label((string) $report['current_status'])); ?></span></td>
                                     <td class="small text-nowrap"><?php echo e(date('M j, Y', strtotime((string) $report['submitted_at']))); ?></td>
-                                    <td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="illegal-logging-report-detail.php?id=<?php echo (int) $report['id']; ?>"><i class="bi bi-eye"></i> Open</a></td>
+                                    <td class="text-end" data-record-actions><?php render_record_actions('illegal_logging_report', (int) $report['id'], (string) $report['report_reference']); ?></td>
                                 </tr>
                             <?php endforeach; ?>
                         </tbody>
@@ -140,6 +148,5 @@ try {
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>

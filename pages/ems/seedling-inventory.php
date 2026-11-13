@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/seedling.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_role($pdo, 'ems');
 
@@ -26,8 +27,23 @@ if (!empty($_SESSION['seedling_inventory_flash']) && is_array($_SESSION['seedlin
 
 try {
     $inventory = seedling_inventory_list($pdo);
-    $summary = seedling_inventory_summary($pdo);
-    $movements = seedling_stock_movements($pdo, 15);
+    $inventory = record_visibility_filter($pdo, $inventory, 'seedling_inventory');
+    $registryRows = registry_date_rows($inventory, 'created_at');
+    $registryPredicates = [
+        'active' => static fn ($r) => (int) $r['is_active'] === 1,
+        'available' => static fn ($r) => (int) $r['is_active'] === 1 && (int) $r['available_quantity'] > 0,
+        'low' => static fn ($r) => (int) $r['is_active'] === 1 && (int) $r['available_quantity'] <= (int) $r['low_stock_threshold'],
+    ];
+    $activeInventory = array_filter($registryRows, $registryPredicates['active']);
+    $pendingRequests = registry_date_rows(record_visibility_filter($pdo, seedling_requests_for_ems($pdo), 'seedling_request'), 'submitted_at');
+    $summary = [
+        'total_available'=>array_sum(array_column($activeInventory, 'available_quantity')),
+        'species_count'=>count($activeInventory),
+        'low_stock_species'=>count(array_filter($registryRows, $registryPredicates['low'])),
+        'pending_requests'=>count(array_filter($pendingRequests, registry_request_predicates()['pending'])),
+    ];
+    $inventory = registry_category_rows($registryRows, $registryPredicates);
+    $movements = array_slice(registry_date_rows(seedling_stock_movement_ledger($pdo, [], 0), 'created_at'), 0, 15);
 } catch (PDOException $e) {
     error_log('[CERTREEFY SEEDLING INVENTORY LOAD ERROR] ' . $e->getMessage());
     http_response_code(500);
@@ -46,7 +62,7 @@ try {
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -83,34 +99,35 @@ try {
                 </div>
             <?php endif; ?>
 
+            <?php render_registry_date_filter('Species registration and stock movement dates', 'Stock cards show current balances for species registered in this period. Pending requests use submission dates.'); ?>
             <section class="row g-3 mb-4" aria-label="Inventory summary">
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card stagger-1">
+                    <a class="ledger-card summary-card stagger-1" <?php echo registry_card_attributes('available'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-box-seam"></i></span><span class="ledger-tag">Inventory</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['total_available']; ?></div>
                         <div class="ledger-caption">Available seedlings</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-teal stagger-2">
+                    <a class="ledger-card summary-card accent-teal stagger-2" <?php echo registry_card_attributes('active'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-diagram-3"></i></span><span class="ledger-tag">Species</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['species_count']; ?></div>
                         <div class="ledger-caption">Active species</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-rust stagger-3">
+                    <a class="ledger-card summary-card accent-rust stagger-3" <?php echo registry_card_attributes('low'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-exclamation-triangle"></i></span><span class="ledger-tag">Alerts</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['low_stock_species']; ?></div>
                         <div class="ledger-caption">Low stock items</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-amber stagger-4">
+                    <a class="ledger-card summary-card accent-amber stagger-4" <?php echo registry_card_attributes('pending', [], 'seedling-requests.php'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-hourglass-split"></i></span><span class="ledger-tag">Requests</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['pending_requests']; ?></div>
                         <div class="ledger-caption">Pending seedling requests</div>
-                    </div>
+                        </a>
                 </div>
             </section>
 
@@ -136,7 +153,8 @@ try {
                     <h2 id="inventoryTableHeading">Species Registry</h2>
                     <span class="section-note tabular"><?php echo count($inventory); ?> species</span>
                 </div>
-                <div class="table-responsive">
+                <?php render_record_visibility_tabs('seedling_inventory'); ?>
+                    <div class="table-responsive">
                     <table class="table align-middle mb-0" data-table-tools data-tt-search-placeholder="Search species">
                         <thead>
                             <tr>
@@ -168,9 +186,10 @@ try {
                                             <span class="badge text-bg-success">In stock</span>
                                         <?php endif; ?>
                                     </td>
-                                    <td class="text-end">
+                                    <td class="text-end" data-record-actions>
                                         <button class="btn btn-sm btn-outline-primary adjust-stock-action" type="button" data-bs-toggle="modal" data-bs-target="#adjustStockModal" data-inventory-id="<?php echo (int) $species['id']; ?>" data-common-name="<?php echo e((string) $species['common_name']); ?>"><i class="bi bi-arrow-left-right"></i> Adjust stock</button>
-                                        <button class="btn btn-sm btn-outline-primary edit-species-action" type="button" data-bs-toggle="modal" data-bs-target="#editSpeciesModal" data-inventory-id="<?php echo (int) $species['id']; ?>" data-common-name="<?php echo e((string) $species['common_name']); ?>" data-scientific-name="<?php echo e((string) ($species['scientific_name'] ?? '')); ?>" data-threshold="<?php echo (int) $species['low_stock_threshold']; ?>" data-notes="<?php echo e((string) ($species['notes'] ?? '')); ?>" data-is-active="<?php echo (int) $species['is_active']; ?>"><i class="bi bi-pencil"></i> Edit</button>
+                                        <button class="btn btn-sm btn-outline-primary edit-species-action" data-row-trigger type="button" data-bs-toggle="modal" data-bs-target="#editSpeciesModal" data-inventory-id="<?php echo (int) $species['id']; ?>" data-common-name="<?php echo e((string) $species['common_name']); ?>" data-scientific-name="<?php echo e((string) ($species['scientific_name'] ?? '')); ?>" data-threshold="<?php echo (int) $species['low_stock_threshold']; ?>" data-notes="<?php echo e((string) ($species['notes'] ?? '')); ?>" data-indigenous-status="<?php echo e($species['indigenous_status']); ?>" data-is-active="<?php echo (int) $species['is_active']; ?>"><i class="bi bi-pencil"></i> Edit</button>
+                                        <?php render_record_actions('seedling_inventory', (int) $species['id'], (string) $species['common_name']); ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -278,6 +297,7 @@ try {
                         <input type="hidden" name="csrf_token" value="<?php echo e($csrfToken); ?>">
                         <input type="hidden" name="action" value="update_species">
                         <input type="hidden" name="inventory_id" id="editSpeciesInventoryId" value="">
+                        <div class="mb-3"><label class="form-label" for="editIndigenousStatus">Indigenous classification</label><select class="form-select" id="editIndigenousStatus" name="indigenous_status"><option value="unknown">Not yet confirmed</option><option value="indigenous">Indigenous</option><option value="non_indigenous">Non-indigenous</option></select><div class="form-text">Confirm the classification before recommending a species for an indigenous-only donation.</div></div>
                         <div class="mb-3"><label class="form-label" for="editScientificName">Scientific name</label><input class="form-control" id="editScientificName" type="text" name="scientific_name" maxlength="150"></div>
                         <div class="mb-3"><label class="form-label" for="editThreshold">Low-stock threshold</label><input class="form-control" id="editThreshold" type="number" name="low_stock_threshold" min="0" required></div>
                         <div class="mb-3"><label class="form-label" for="editNotes">Notes</label><input class="form-control" id="editNotes" type="text" name="notes" maxlength="500"></div>
@@ -307,6 +327,7 @@ try {
             button.addEventListener('click', function () {
                 document.getElementById('editSpeciesInventoryId').value = button.dataset.inventoryId;
                 document.getElementById('editSpeciesName').textContent = button.dataset.commonName;
+                document.getElementById('editIndigenousStatus').value = button.dataset.indigenousStatus || 'unknown';
                 document.getElementById('editScientificName').value = button.dataset.scientificName || '';
                 document.getElementById('editThreshold').value = button.dataset.threshold;
                 document.getElementById('editNotes').value = button.dataset.notes || '';
@@ -314,6 +335,5 @@ try {
             });
         });
     </script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>

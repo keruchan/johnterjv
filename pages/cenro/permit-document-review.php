@@ -4,6 +4,7 @@
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/permit_documents.php';
+require_once __DIR__ . '/../../includes/permit_guidance.php';
 
 require_role($pdo, 'rps');
 
@@ -41,7 +42,7 @@ try {
         $applicationId,
         (int) $_SESSION['id'],
         is_array($_POST['replace'] ?? null) ? $_POST['replace'] : [],
-        (string) ($_POST['review_notes'] ?? '')
+        permit_reason_with_remarks('document', !empty($_POST['replace']) ? ($_POST['review_reason'] ?? '') : '', $_POST['review_notes'] ?? '')
     );
     $_SESSION['csrf_permit_document_review_token'] = bin2hex(random_bytes(32));
     $_SESSION['permit_document_review_flash'] = [
@@ -50,7 +51,7 @@ try {
             ? 'All ' . (int) $result['reviewed_count'] . ' submitted scan(s) approved. The applicant was asked to bring the original documents.'
             : 'Replacement requested for ' . (int) $result['replacement_count'] . ' document(s). The applicant was notified.',
     ];
-} catch (PermitDocumentValidationException | RuntimeException $e) {
+} catch (InvalidArgumentException | RuntimeException $e) {
     $_SESSION['permit_document_review_flash'] = [
         'type' => 'danger',
         'message' => $e->getMessage(),

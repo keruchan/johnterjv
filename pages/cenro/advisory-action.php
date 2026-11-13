@@ -1,5 +1,5 @@
 <?php
-/** PRG endpoint for Public Advisory create/update/publish/archive actions. */
+/** PRG endpoint for Public Advisory create/update/publish actions. */
 
 require_once __DIR__ . '/../../config/config.php';
 require_once __DIR__ . '/../../includes/auth.php';
@@ -39,18 +39,15 @@ try {
         }
         advisory_update($pdo, $userId, $advisoryId, $_POST, $_FILES);
         $_SESSION['advisory_flash'] = ['type' => 'success', 'message' => 'Announcement updated.'];
-    } elseif ($action === 'publish_advisory') {
+    } elseif (in_array($action, ['publish_advisory', 'unpublish_advisory'], true)) {
         if ($advisoryId < 1) {
             throw new AdvisoryValidationException('The selected advisory is invalid.');
         }
-        advisory_transition($pdo, $userId, $advisoryId, 'publish', $_POST);
-        $_SESSION['advisory_flash'] = ['type' => 'success', 'message' => 'Advisory published to Client users.'];
+        $transition = $action === 'publish_advisory' ? 'publish' : 'unpublish';
+        advisory_transition($pdo, $userId, $advisoryId, $transition, $_POST);
+        $_SESSION['advisory_flash'] = ['type' => 'success', 'message' => $transition === 'publish' ? 'Announcement published.' : 'Announcement unpublished.'];
     } elseif ($action === 'archive_advisory') {
-        if ($advisoryId < 1) {
-            throw new AdvisoryValidationException('The selected advisory is invalid.');
-        }
-        advisory_transition($pdo, $userId, $advisoryId, 'archive', $_POST);
-        $_SESSION['advisory_flash'] = ['type' => 'success', 'message' => 'Advisory archived.'];
+        throw new AdvisoryValidationException('Use the Archive button in the table and provide a reason.');
     } else {
         throw new AdvisoryValidationException('The requested action is not supported.');
     }

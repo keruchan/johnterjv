@@ -64,8 +64,7 @@ try {
     $otherCommunityId = seed_user($pdo, 'community', $suffix, 'other');
     $rpsUserId = seed_user($pdo, 'rps', $suffix, 'rps');
 
-    echo 'Config: max ' . seedling_max_per_request() . ' seedlings per request.' . PHP_EOL;
-    check('default per-request cap is 50', seedling_max_per_request() === 50);
+    check('annual distribution target is 15,000', CERTREEFY_SEEDLING_ANNUAL_TARGET === 15000);
 
     // ---- Inventory: species creation + opening stock ----
     echo 'Inventory' . PHP_EOL;
@@ -165,25 +164,24 @@ try {
     // ---- Request submission ----
     echo 'Request submission' . PHP_EOL;
 
-    // Cap enforced.
-    $capRejected = false;
-    try {
-        seedling_submit_request($pdo, $ownerUserId, [
-            'planting_purpose' => 'Reforestation', 'planting_location' => 'Barangay probe',
-            'submission_key' => new_submission_key(),
-            'inventory_id' => [(string) $narra['inventory_id']],
-            'quantity' => ['51'],
-        ]);
-    } catch (SeedlingValidationException $e) {
-        $capRejected = str_contains($e->getMessage(), 'may not exceed 50');
-    }
-    check('per-request cap of 50 enforced', $capRejected);
+    // Requests above the old policy cap are accepted; stock is still checked at release.
+    $largeRequest = seedling_submit_request($pdo, $ownerUserId, [
+        'planting_purpose'=>'Reforestation', 'planting_location'=>'Barangay Probe',
+        'planting_barangay'=>'Bubukal', 'planting_municipality'=>'Santa Cruz',
+        'submission_key'=>new_submission_key(),
+        'inventory_id'=>[(string)$narra['inventory_id']], 'quantity'=>['51'],
+    ]);
+    $createdRequestIds[]=$largeRequest['request_id'];
+    check('request above 50 accepted', $largeRequest['request_id'] > 0);
+    $largeSaved=seedling_request_for_actor($pdo,$largeRequest['request_id'],$ownerUserId);
+    check('structured planting destination retained', $largeSaved['planting_barangay']==='Bubukal' && $largeSaved['planting_municipality']==='Santa Cruz');
+    seedling_cancel_request($pdo,$largeRequest['request_id'],$ownerUserId,'Probe complete.');
 
     // Zero/blank quantity rejected.
     $zeroRejected = false;
     try {
         seedling_submit_request($pdo, $ownerUserId, [
-            'planting_purpose' => 'Reforestation', 'planting_location' => 'Barangay probe',
+            'planting_purpose' => 'Reforestation', 'planting_barangay'=>'Bubukal', 'planting_municipality'=>'Santa Cruz', 'planting_location' => 'Barangay probe',
             'submission_key' => new_submission_key(),
             'inventory_id' => [(string) $narra['inventory_id']],
             'quantity' => ['0'],
@@ -197,7 +195,7 @@ try {
     $emptyRejected = false;
     try {
         seedling_submit_request($pdo, $ownerUserId, [
-            'planting_purpose' => 'Reforestation', 'planting_location' => 'Barangay probe',
+            'planting_purpose' => 'Reforestation', 'planting_barangay'=>'Bubukal', 'planting_municipality'=>'Santa Cruz', 'planting_location' => 'Barangay probe',
             'submission_key' => new_submission_key(),
             'inventory_id' => [], 'quantity' => [],
         ]);
@@ -210,7 +208,7 @@ try {
     $emsSubmitDenied = false;
     try {
         seedling_submit_request($pdo, $emsUserId, [
-            'planting_purpose' => 'x', 'planting_location' => 'y',
+            'planting_purpose' => 'x', 'planting_barangay'=>'Bubukal', 'planting_municipality'=>'Santa Cruz', 'planting_location' => 'y',
             'submission_key' => new_submission_key(),
             'inventory_id' => [(string) $narra['inventory_id']], 'quantity' => ['1'],
         ]);
@@ -223,7 +221,7 @@ try {
     $key = new_submission_key();
     $request = seedling_submit_request($pdo, $ownerUserId, [
         'planting_purpose' => 'Backyard reforestation',
-        'planting_location' => 'Barangay Probe, Sta. Cruz',
+        'planting_barangay'=>'Bubukal', 'planting_municipality'=>'Santa Cruz', 'planting_location' => 'Barangay Probe, Sta. Cruz',
         'preferred_pickup_date' => date('Y-m-d', strtotime('+7 days')),
         'submission_key' => $key,
         'inventory_id' => [(string) $narra['inventory_id'], (string) $molave['inventory_id']],
@@ -239,7 +237,7 @@ try {
     // Idempotency: same submission key returns the same request.
     $replay = seedling_submit_request($pdo, $ownerUserId, [
         'planting_purpose' => 'Backyard reforestation',
-        'planting_location' => 'Barangay Probe, Sta. Cruz',
+        'planting_barangay'=>'Bubukal', 'planting_municipality'=>'Santa Cruz', 'planting_location' => 'Barangay Probe, Sta. Cruz',
         'submission_key' => $key,
         'inventory_id' => [(string) $narra['inventory_id']],
         'quantity' => ['5'],
@@ -247,7 +245,7 @@ try {
     check('duplicate submission_key is idempotent',
         $replay['duplicate'] === true && $replay['request_id'] === $request['request_id']);
     check('idempotent replay created no second request',
-        count(seedling_requests_for_requester($pdo, $ownerUserId)) === 1);
+        count(array_filter(seedling_requests_for_requester($pdo, $ownerUserId), static fn ($row) => $row['submission_key'] === $key)) === 1);
 
     // EMS was notified of the new request.
     $emsNotified = (int) $pdo->query(
@@ -300,7 +298,7 @@ try {
     // (fresh request to test the guard without disturbing the main one)
     $key2 = new_submission_key();
     $req2 = seedling_submit_request($pdo, $ownerUserId, [
-        'planting_purpose' => 'Guard test', 'planting_location' => 'Barangay Probe',
+        'planting_purpose' => 'Guard test', 'planting_barangay'=>'Bubukal', 'planting_municipality'=>'Santa Cruz', 'planting_location' => 'Barangay Probe',
         'submission_key' => $key2,
         'inventory_id' => [(string) $molave['inventory_id']], 'quantity' => ['5'],
     ]);
@@ -392,7 +390,7 @@ try {
 
     $key3 = new_submission_key();
     $req3 = seedling_submit_request($pdo, $ownerUserId, [
-        'planting_purpose' => 'Cancel test', 'planting_location' => 'Barangay Probe',
+        'planting_purpose' => 'Cancel test', 'planting_barangay'=>'Bubukal', 'planting_municipality'=>'Santa Cruz', 'planting_location' => 'Barangay Probe',
         'submission_key' => $key3,
         'inventory_id' => [(string) $narra['inventory_id']], 'quantity' => ['3'],
     ]);
@@ -415,7 +413,7 @@ try {
     echo 'Rollback' . PHP_EOL;
     $key4 = new_submission_key();
     $req4 = seedling_submit_request($pdo, $ownerUserId, [
-        'planting_purpose' => 'Rollback test', 'planting_location' => 'Barangay Probe',
+        'planting_purpose' => 'Rollback test', 'planting_barangay'=>'Bubukal', 'planting_municipality'=>'Santa Cruz', 'planting_location' => 'Barangay Probe',
         'submission_key' => $key4,
         'inventory_id' => [(string) $narra['inventory_id']], 'quantity' => ['5'],
     ]);

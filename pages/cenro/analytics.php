@@ -14,6 +14,8 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/analytics.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/seedling_distribution.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_roles($pdo, ['rps', 'superadmin']);
 
@@ -26,7 +28,7 @@ if (analytics_actor($pdo, $userId) === null) {
     die('You are not authorized to view analytics.');
 }
 
-$range = analytics_normalize_range($_GET);
+$range = registry_range();
 $rangeQuery = array_filter(['date_from' => $range['from'], 'date_to' => $range['to']]);
 
 try {
@@ -156,7 +158,7 @@ function analytics_latest_value(array $history): int
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -187,60 +189,41 @@ function analytics_latest_value(array $history): int
             </section>
 
             <!-- Headline metrics (respect the date filter) -->
+            <?php render_registry_date_filter('Application and report submission dates'); ?>
             <section class="row g-3 mb-4" aria-label="Headline metrics">
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card stagger-1">
+                    <a class="ledger-card summary-card stagger-1" href="#d_permit_dist" data-summary-tab="tab-descriptive">
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-file-earmark-check"></i></span><span class="ledger-tag">Permits</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $permits['permits_issued']; ?></div>
-                        <div class="ledger-caption">Permits issued (<?php echo (int) $permits['total_applications']; ?> submitted)</div>
-                    </div>
+                        <div class="ledger-caption">Permits issued (<?php echo (int) $permits['total_applications']; ?> submitted)</div></a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-rust stagger-2">
+                    <a class="ledger-card summary-card accent-rust stagger-2" href="#d_il_dist" data-summary-tab="tab-descriptive">
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-shield-exclamation"></i></span><span class="ledger-tag">Reports</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $il['total']; ?></div>
-                        <div class="ledger-caption"><?php echo (int) $il['resolved']; ?> resolved</div>
-                    </div>
+                        <div class="ledger-caption"><?php echo (int) $il['resolved']; ?> resolved</div></a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-teal stagger-3">
+                    <a class="ledger-card summary-card accent-teal stagger-3" href="#d_seed_dist" data-summary-tab="tab-descriptive">
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-flower1"></i></span><span class="ledger-tag">Seedlings</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $seedlings['seedlings_distributed']; ?></div>
-                        <div class="ledger-caption"><?php echo (int) $seedlings['total_requests']; ?> request(s)</div>
-                    </div>
+                        <div class="ledger-caption"><?php echo (int) $seedlings['total_requests']; ?> request(s)</div></a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-amber stagger-4">
+                    <a class="ledger-card summary-card accent-amber stagger-4" href="#d_zone" data-summary-tab="tab-descriptive">
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-geo-alt"></i></span><span class="ledger-tag">Zones</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $zones['total']; ?></div>
-                        <div class="ledger-caption"><?php echo (int) $zones['protected_count']; ?> protected</div>
-                    </div>
+                        <div class="ledger-caption"><?php echo (int) $zones['protected_count']; ?> protected</div></a>
                 </div>
             </section>
 
             <!-- Filter + export (applies to the descriptive summary figures) -->
-            <section class="docket-panel mb-4" aria-label="Report period">
-                <form method="get" action="analytics.php" class="row g-3 align-items-end">
-                    <div class="col-sm-6 col-lg-3">
-                        <label for="dateFrom" class="form-label">From</label>
-                        <input type="date" class="form-control" id="dateFrom" name="date_from" value="<?php echo e($range['from']); ?>">
-                    </div>
-                    <div class="col-sm-6 col-lg-3">
-                        <label for="dateTo" class="form-label">To</label>
-                        <input type="date" class="form-control" id="dateTo" name="date_to" value="<?php echo e($range['to']); ?>">
-                    </div>
-                    <div class="col-lg-6 d-flex gap-2">
-                        <button type="submit" class="btn btn-certreefy"><i class="bi bi-funnel me-1"></i>Apply period</button>
-                        <a class="btn btn-outline-secondary" href="analytics.php"><i class="bi bi-x-lg me-1"></i>Clear</a>
-                        <a class="btn btn-outline-success ms-auto" href="analytics-export.php<?php echo $rangeQuery === [] ? '' : ('?' . e(http_build_query($rangeQuery))); ?>"><i class="bi bi-download me-1"></i>Export CSV</a>
-                    </div>
-                </form>
-                <p class="small text-secondary mt-2 mb-0">
+<div class="d-flex justify-content-end mb-3"><a class="btn btn-outline-success ms-auto" href="analytics-export.php<?php echo $rangeQuery === [] ? '' : ('?' . e(http_build_query($rangeQuery))); ?>"><i class="bi bi-download me-1"></i>Export CSV</a></div>
+            <p class="small text-secondary mt-2 mb-0">
                     Headline figures and distribution charts use
                     <?php if ($range['from'] === '' && $range['to'] === ''): ?>all-time data<?php else: ?>the selected period<?php endif; ?>
                     (drafts excluded). Trend/forecast charts always use the trailing 12 months.
                 </p>
-            </section>
 
             <!-- Analytics layers -->
             <ul class="nav analytics-tabs mb-3" role="tablist">
@@ -414,6 +397,7 @@ function analytics_latest_value(array $history): int
                     </div>
                 </div>
             </div>
+            <?php render_seedling_distribution($pdo, '../../', true); ?>
         </main>
     </div>
 
@@ -422,7 +406,7 @@ function analytics_latest_value(array $history): int
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
-    <script src="../../js/geo-map.js"></script>
+    <?php geo_render_map_script('../../'); ?>
     <script>
         const CT = <?php echo json_encode($chartData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE); ?>;
         const PALETTE = { fern:'#2d6a4f', teal:'#1f6a68', amber:'#a8721f', rust:'#a5402a', moss:'#74a57f', canopy:'#1b4332', ink:'#7c877e' };
@@ -558,6 +542,18 @@ function analytics_latest_value(array $history): int
                 });
             });
         });
+    </script>
+<script>
+    document.querySelectorAll('[data-summary-tab]').forEach(function (card) {
+        card.addEventListener('click', function (event) {
+            event.preventDefault();
+            var tab = document.getElementById(card.dataset.summaryTab);
+            bootstrap.Tab.getOrCreateInstance(tab).show();
+            document.querySelectorAll('[data-summary-tab]').forEach(function (other) { other.removeAttribute('aria-current'); });
+            card.setAttribute('aria-current', 'true');
+            requestAnimationFrame(function () { document.querySelector(card.getAttribute('href')).closest('section').scrollIntoView({behavior:'smooth',block:'start'}); });
+        });
+    });
     </script>
 </body>
 </html>

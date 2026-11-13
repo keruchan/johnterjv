@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../includes/navigation.php';
 require_once __DIR__ . '/../../includes/area_management.php';
 require_once __DIR__ . '/../../includes/view.php';
+require_once __DIR__ . '/../../includes/registry_filters.php';
 
 require_roles($pdo, ['rps', 'superadmin']);
 
@@ -36,8 +37,15 @@ $filters = [
 ];
 
 try {
-    $zones = area_zone_list($pdo, $filters);
-    $summary = area_zone_summary($pdo);
+    $zones = area_zone_list($pdo, array_replace($filters, ['classification' => '']));
+    $zones = record_visibility_filter($pdo, $zones, 'area_zone');
+    $registryRows = registry_date_rows($zones, 'created_at');
+    $registryPredicates = ['active' => static fn ($r) => (int) $r['is_active'] === 1];
+    foreach (array_keys($classifications) as $classification) { $registryPredicates[$classification] = static fn ($r) => (int) $r['is_active'] === 1 && $r['classification'] === $classification; }
+    $registryCounts = registry_counts($registryRows, $registryPredicates);
+    $summary = ['total'=>$registryCounts['active'], 'allowed_count'=>$registryCounts['allowed'], 'restricted_count'=>$registryCounts['restricted'], 'protected_count'=>$registryCounts['protected']];
+    $zones = registry_category_rows($registryRows, $registryPredicates);
+    if (isset($registryPredicates[$filters['classification']])) { $zones = array_values(array_filter($zones, $registryPredicates[$filters['classification']])); }
     $zoneMapFeatures = area_zone_map_features($pdo);
 } catch (PDOException $e) {
     error_log('[CERTREEFY AREA MANAGEMENT LOAD ERROR] ' . $e->getMessage());
@@ -59,7 +67,7 @@ try {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <link rel="stylesheet" href="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.css">
-    <link rel="stylesheet" href="../../css/dashboard.css?v=7">
+    <link rel="stylesheet" href="../../css/dashboard.css?v=<?php echo e(certreefy_asset_version('css/dashboard.css')); ?>">
 </head>
 <body>
     <a href="#main-content" class="skip-link">Skip to main content</a>
@@ -98,34 +106,35 @@ try {
 
             <div class="alert alert-light border mb-4"><i class="bi bi-info-circle me-1"></i>Informational only — not linked to permit review or approval.</div>
 
+            <?php render_registry_date_filter('Zone registration dates'); ?>
             <section class="row g-3 mb-4" aria-label="Zone summary">
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card stagger-1">
+                    <a class="ledger-card summary-card stagger-1" <?php echo registry_card_attributes('active'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-geo-alt"></i></span><span class="ledger-tag">Zones</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['total']; ?></div>
                         <div class="ledger-caption">Total zones</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-teal stagger-2">
+                    <a class="ledger-card summary-card accent-teal stagger-2" <?php echo registry_card_attributes('allowed'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-check-circle"></i></span><span class="ledger-tag">Allowed</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['allowed_count']; ?></div>
                         <div class="ledger-caption">Allowed for cutting</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-amber stagger-3">
+                    <a class="ledger-card summary-card accent-amber stagger-3" <?php echo registry_card_attributes('restricted'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-exclamation-triangle"></i></span><span class="ledger-tag">Restricted</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['restricted_count']; ?></div>
                         <div class="ledger-caption">Restricted zones</div>
-                    </div>
+                        </a>
                 </div>
                 <div class="col-sm-6 col-xl-3">
-                    <div class="ledger-card accent-rust stagger-4">
+                    <a class="ledger-card summary-card accent-rust stagger-4" <?php echo registry_card_attributes('protected'); ?>>
                         <div class="d-flex justify-content-between align-items-start"><span class="ledger-icon"><i class="bi bi-shield-exclamation"></i></span><span class="ledger-tag">Protected</span></div>
                         <div class="ledger-value tabular"><?php echo (int) $summary['protected_count']; ?></div>
                         <div class="ledger-caption">Protected zones</div>
-                    </div>
+                        </a>
                 </div>
             </section>
 
@@ -177,7 +186,7 @@ try {
             </section>
 
             <section class="docket-panel mb-4" aria-label="Zone filters">
-                <form method="get" action="area-management.php" class="row g-3 align-items-end">
+                <form method="get" action="area-management.php" class="row g-3 align-items-end"><?php registry_hidden_filters(); ?>
                     <div class="col-lg-6">
                         <label for="zoneSearch" class="form-label">Search</label>
                         <div class="input-group">
@@ -206,7 +215,8 @@ try {
                     <h2 id="zoneRegistryHeading">Zone Registry</h2>
                     <span class="section-note tabular"><?php echo count($zones); ?> zone<?php echo count($zones) === 1 ? '' : 's'; ?></span>
                 </div>
-                <div class="table-responsive">
+                <?php render_record_visibility_tabs('area_zone'); ?>
+                    <div class="table-responsive">
                     <table class="table align-middle mb-0" data-table-tools data-tt-search="false">
                         <thead>
                             <tr>
@@ -232,8 +242,8 @@ try {
                                         ?>
                                     </td>
                                     <td><?php echo (int) $zone['is_active'] === 1 ? '<span class="badge text-bg-success">Active</span>' : '<span class="badge text-bg-secondary">Inactive</span>'; ?></td>
-                                    <td class="text-end">
-                                        <button class="btn btn-sm btn-outline-primary edit-zone-action" type="button" data-bs-toggle="modal" data-bs-target="#editZoneModal"
+                                    <td class="text-end" data-record-actions>
+                                        <button class="btn btn-sm btn-outline-primary edit-zone-action" data-row-trigger type="button" data-bs-toggle="modal" data-bs-target="#editZoneModal"
                                             data-zone-id="<?php echo (int) $zone['id']; ?>"
                                             data-zone-name="<?php echo e((string) $zone['zone_name']); ?>"
                                             data-classification="<?php echo e((string) $zone['classification']); ?>"
@@ -245,6 +255,7 @@ try {
                                             data-notes="<?php echo e((string) ($zone['notes'] ?? '')); ?>"
                                             data-is-active="<?php echo (int) $zone['is_active']; ?>"
                                         ><i class="bi bi-pencil"></i> Edit</button>
+                                        <?php render_record_actions('area_zone', (int) $zone['id'], (string) $zone['zone_name']); ?>
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
@@ -320,7 +331,7 @@ try {
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/@geoman-io/leaflet-geoman-free@2.17.0/dist/leaflet-geoman.min.js"></script>
-    <script src="../../js/geo-map.js"></script>
+    <?php geo_render_map_script('../../'); ?>
     <script>
         var zoneFeatures = CertreefyGeo.readJson('zoneMapData', []);
         var zoneBoundaries = CertreefyGeo.readJson('zoneBoundaryData', {});
@@ -433,6 +444,5 @@ try {
             }
         });
     </script>
-    <script src="../../js/table-tools.js"></script>
 </body>
 </html>
